@@ -1,18 +1,20 @@
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 #include <iostream>
+#include <memory>
 
 /* ---------------Basic trie implementation-------------- 
 - Uses naive 'new' keyword for managing memory
 */
 struct TrieNodeBasic {
-    std::array<TrieNodeBasic*, 26> children;
-    bool isLeaf;
+    std::array<std::shared_ptr<TrieNodeBasic>, 26> children;
+    bool isTerminal;
     
     TrieNodeBasic() : 
         children(),
-        isLeaf(true) {}
+        isTerminal(false) {}
         
     ~TrieNodeBasic() {}
 };
@@ -20,15 +22,15 @@ struct TrieNodeBasic {
 class TrieBasic {
     public:
         TrieBasic() {
-            rootNode = new TrieNodeBasic();
+            rootNode = std::make_shared<TrieNodeBasic>();
         };
         void insert(std::string_view key);
         void remove_key(std::string_view key);
         bool query(std::string_view key);
 
     private:
-        TrieNodeBasic* rootNode;
-        TrieNodeBasic* addNode(TrieNodeBasic* node, size_t child_idx);
+        std::shared_ptr<TrieNodeBasic> rootNode;
+        std::shared_ptr<TrieNodeBasic> addNode(std::shared_ptr<TrieNodeBasic> node, size_t child_idx);
 };
 
 /* ---------------Container-based implementation-------------- 
@@ -37,12 +39,12 @@ class TrieBasic {
 
 struct TrieNodeVec {
     std::array<uint32_t, 26> children;
-    bool isLeaf;
+    bool isTerminal;
     char _pad[128 - 26*4 - 1];  // pad to 128 bytes; power-of-2 stride removes imul in traversal
 
     TrieNodeVec() :
         children(),
-        isLeaf(true) {}
+        isTerminal(false) {}
 
     ~TrieNodeVec() {}
 };
@@ -67,9 +69,22 @@ class TrieVec {
 - Nodes kept in contiguous memory managed by arena
 */
 
-class TrieArena {
+class Arena {
     public:
-        TrieArena();
+        Arena(size_t block_size, size_t num_blocks);
+        void* request(size_t mem_size);
+    private:
+        size_t block_size;
+        size_t num_blocks;
+        std::vector<void*> blocks;
+        size_t offset;
+        void* curr_block;   
+};
+
+class TrieArena : TrieBasic {
+    public:
+        TrieArena(size_t block_size=400000, size_t num_blocks=1) : 
+            memoryPool(block_size, num_blocks) {}
         ~TrieArena();
 
         void insert(std::string_view key);
@@ -78,5 +93,6 @@ class TrieArena {
 
     private:
         TrieNodeBasic* rootNode;
+        Arena memoryPool;
         void addNode(TrieNodeBasic* node, size_t child_idx);
 };

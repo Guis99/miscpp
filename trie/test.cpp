@@ -18,6 +18,16 @@ void test_trie_naive() {
     assert(trie.query("words"));
 
     assert(!trie.query("wordss"));
+    assert(!trie.query("w"));
+    assert(!trie.query("wo"));
+    assert(!trie.query("wor"));
+
+    trie.remove_key("word");
+    trie.insert("wo");
+
+    assert(!trie.query("word"));
+    assert(trie.query("wo"));
+    assert(trie.query("words"));
 }
 
 void test_trie_vector() {
@@ -36,6 +46,16 @@ void test_trie_vector() {
     assert(trie.query("words"));
 
     assert(!trie.query("wordss"));
+    assert(!trie.query("w"));
+    assert(!trie.query("wo"));
+    assert(!trie.query("wor"));
+
+    trie.remove_key("word");
+    trie.insert("wo");
+
+    assert(!trie.query("word"));
+    assert(trie.query("wo"));
+    assert(trie.query("words"));
 }
 
 int main() {
