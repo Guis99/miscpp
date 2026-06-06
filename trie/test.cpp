@@ -1,6 +1,5 @@
 #include "trie.h"
 #include <cassert>
-#include <vector>
 
 void test_trie_naive_shared_ptr() {
     std::cout<<"b4 inst"<<std::endl;
@@ -88,9 +87,8 @@ void test_trie_vector() {
 
 void test_trie_arena() {
     std::cout<<"b4 inst"<<std::endl;
-    TrieArena trie = TrieArena();
+    TrieArena trie = TrieArena(500, 6);
     std::cout<<"after inst"<<std::endl;
-
     trie.insert("hello");
     trie.insert("c");
     trie.insert("word");

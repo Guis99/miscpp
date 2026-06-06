@@ -71,8 +71,9 @@ int main() {
         }
 
         { // TrieArena
-            size_t block = sizeof(TrieNodeRaw) * n * 10;
-            TrieArena trie(block, 1);
+            size_t block = sizeof(TrieNodeRaw) * n * 1;
+            // size_t block = 400000;
+            TrieArena trie(block, 4);
             auto t0 = Clock::now();
             for (const auto& w : words) trie.insert(w);
             auto t1 = Clock::now();
@@ -97,7 +98,7 @@ int main() {
     };
 
     std::cout << "\n=== INSERT (ms) ===\n";
-    print_header("Raw* insert", "SharedPtr insert", "Vec insert", "Arena insert");
+    print_header("Raw pointer", "SharedPtr", "Vec", "Arena");
     for (size_t i = 0; i < sizes.size(); ++i) {
         const auto& r = rows[i];
         std::cout << std::fixed << std::setprecision(3) << std::left
@@ -110,7 +111,7 @@ int main() {
     }
 
     std::cout << "\n=== QUERY (ms) ===\n";
-    print_header("Raw* query", "SharedPtr query", "Vec query", "Arena query");
+    print_header("Raw*", "SharedPtr", "Vec", "Arena");
     for (size_t i = 0; i < sizes.size(); ++i) {
         const auto& r = rows[i];
         std::cout << std::fixed << std::setprecision(3) << std::left

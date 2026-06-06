@@ -1,0 +1,5 @@
+/Users/bhoh/projects/miscpp/trie/build/CMakeFiles/trie_lib.dir
+/Users/bhoh/projects/miscpp/trie/build/CMakeFiles/trie_test.dir
+/Users/bhoh/projects/miscpp/trie/build/CMakeFiles/trie_bench.dir
+/Users/bhoh/projects/miscpp/trie/build/CMakeFiles/edit_cache.dir
+/Users/bhoh/projects/miscpp/trie/build/CMakeFiles/rebuild_cache.dir

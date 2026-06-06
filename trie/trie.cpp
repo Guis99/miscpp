@@ -53,40 +53,7 @@ void TrieVec::remove_key(std::string_view key) {
     nodeVector[currNode].isTerminal = false;
 }
 
-// Arena allocator-based trie
-Arena::Arena(size_t block_size, size_t num_blocks) :
-    block_size(block_size),
-    num_blocks(num_blocks),
-    offset(0) {
-
-    curr_block = malloc(block_size);
-    blocks.push_back(curr_block);
-}
-
-Arena::~Arena() {
-    for (auto block : blocks) {
-        // std::cout << "free" << std::endl;
-        free(block);
-    }
-}
-
-void* Arena::request(size_t mem_size) {
-    // std::cout << "request called" << std::endl;
-    if (offset + mem_size > block_size) {
-        curr_block = malloc(block_size);
-        blocks.push_back(curr_block);
-        offset = 0;
-    }
-
-    char* place_loc = reinterpret_cast<char*>(curr_block) + offset;
-
-    offset += mem_size;
-
-    return place_loc;
-}
-
 TrieNodeRaw* TrieArena::addNode(TrieNodeRaw* node, size_t child_idx) {
-    // std::cout<<"add from arena"<<std::endl;
     void* ptr = memoryPool.request(sizeof(TrieNodeRaw));
     node->children[child_idx] = new (ptr) TrieNodeRaw();
 

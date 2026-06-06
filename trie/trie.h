@@ -1,9 +1,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cassert>
 #include <vector>
 #include <iostream>
 #include <memory>
+
+#include <arena/arena.h>
 
 #ifndef TRIE_HEADER
 #define TRIE_HEADER
@@ -41,16 +44,11 @@ class TrieBase {
 
         void insert(std::string_view key) {
             T currNode = rootNode;
-            // std::cout << "insert entry" << std::endl;
             for (const auto& ch : key) {
-                // std::cout << ch << std::endl;
                 size_t child_idx = ch - 'a';
-                // std::cout << currNode << std::endl;
                 if (currNode->children[child_idx]) {
-                    // std::cout << "insert entry loop yes" << std::endl;
                     currNode = currNode->children[child_idx];
                 } else {
-                    // std::cout << "insert entry loop no" << std::endl;
                     currNode = static_cast<Derived*>(this)->addNode(currNode, child_idx);
                 }
             }
@@ -61,7 +59,6 @@ class TrieBase {
         void remove_key(std::string_view key) {
             T currNode = rootNode;
             for (const auto& ch : key) {
-                // std::cout << ch << std::endl;
                 size_t child_idx = ch - 'a';
                 if (currNode->children[child_idx]) {
                     currNode = currNode->children[child_idx];
@@ -97,10 +94,9 @@ class TrieBasic : public TrieBase<TrieBasic<T>, T> {
         TrieBasic();
     protected:
         T addNode(T node, size_t child_idx);
-        // T rootNode;
 };
 
-template<> inline TrieBasic< std::shared_ptr<TrieNodeBasic> >::TrieBasic() {
+template<> inline TrieBasic< std::shared_ptr<TrieNodeBasic>>::TrieBasic() {
     rootNode = std::make_shared<TrieNodeBasic>();
 }
 
@@ -113,7 +109,7 @@ template<> inline TrieNodeRaw* TrieBasic<TrieNodeRaw*>::addNode(TrieNodeRaw* nod
     return node->children[child_idx];
 }
 
-template<> inline std::shared_ptr<TrieNodeBasic> TrieBasic< std::shared_ptr<TrieNodeBasic> >::addNode(std::shared_ptr<TrieNodeBasic> node, size_t child_idx) {
+template<> inline std::shared_ptr<TrieNodeBasic> TrieBasic< std::shared_ptr<TrieNodeBasic>>::addNode(std::shared_ptr<TrieNodeBasic> node, size_t child_idx) {
     node->children[child_idx] = std::make_shared<TrieNodeBasic>();
     return node->children[child_idx];
 }
@@ -154,27 +150,11 @@ class TrieVec {
 - Nodes kept in contiguous memory managed by arena
 */
 
-class Arena {
-    public:
-        Arena(size_t block_size, size_t num_blocks);
-        ~Arena();
-        void* request(size_t mem_size);
-
-        Arena(const Arena&) = delete;
-        Arena& operator=(const Arena&) = delete;
-
-    private:
-        size_t block_size; // bytes
-        size_t num_blocks;
-        std::vector<void*> blocks;
-        size_t offset; // bytes
-        void* curr_block; 
-};
-
 class TrieArena : public TrieBase<TrieArena, TrieNodeRaw*> {
     public:
         TrieArena(size_t block_size=400000, size_t num_blocks=1) : 
             memoryPool(block_size, num_blocks) {
+                assert(2 * sizeof(TrieNodeRaw) < block_size);
                 void* ptr = memoryPool.request(sizeof(TrieNodeRaw));
                 rootNode = new (ptr) TrieNodeRaw();
             }
