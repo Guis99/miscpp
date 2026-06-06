@@ -111,7 +111,7 @@ int main() {
     }
 
     std::cout << "\n=== QUERY (ms) ===\n";
-    print_header("Raw*", "SharedPtr", "Vec", "Arena");
+    print_header("Raw Pointer", "SharedPtr", "Vec", "Arena");
     for (size_t i = 0; i < sizes.size(); ++i) {
         const auto& r = rows[i];
         std::cout << std::fixed << std::setprecision(3) << std::left

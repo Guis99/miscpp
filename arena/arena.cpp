@@ -31,7 +31,7 @@ Arena::~Arena() {
 
 void* Arena::request(size_t mem_size) {
     if (offset + mem_size > block_size) {
-        if (block_idx >= num_blocks -1 ) {
+        if (block_idx >= num_blocks - 1 ) {
             curr_block = malloc(block_size);
             blocks.push_back(curr_block);
         } else {
@@ -43,7 +43,6 @@ void* Arena::request(size_t mem_size) {
     }
 
     char* place_loc = reinterpret_cast<char*>(curr_block) + offset;
-
     offset += mem_size;
 
     return place_loc;

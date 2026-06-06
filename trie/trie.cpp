@@ -1,6 +1,4 @@
 #include "trie.h"
-#include <cstddef>
-#include <cstdlib>
 #include <exception>
 
 // Vector-based trie implementation

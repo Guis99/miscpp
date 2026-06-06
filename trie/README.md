@@ -7,5 +7,11 @@ Supports:
 - query
 
 # Building
-Basic unit tests: g++ -O2 -std=c++17 test.cpp trie.cpp -o run_trie_tests && ./run_trie_tests
-Benchmark: g++ -O2 -std=c++17 trie.cpp benchmark.cpp -o bench && ./bench
+```bash
+cmake -B build
+make -C build
+```
+
+Basic unit tests: ```./build/trie_test```
+
+Benchmark: ```./build/trie_bench```
