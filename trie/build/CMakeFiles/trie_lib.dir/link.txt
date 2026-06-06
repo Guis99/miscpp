@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc libtrie_lib.a CMakeFiles/trie_lib.dir/trie.cpp.o CMakeFiles/trie_lib.dir/Users/bhoh/projects/miscpp/arena/arena.cpp.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib libtrie_lib.a
