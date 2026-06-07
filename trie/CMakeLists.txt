@@ -3,10 +3,20 @@ project(trie CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O2 -DDUMP_ARENA_STATS")
+SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O2")
 
 option(BUILD_TESTS     "Build test executable"      ON)
 option(BUILD_BENCHMARK "Build benchmark executable" ON)
+option(OPTIMIZE_VEC "Pre-allocate AND preconstruct" ON)
+option(PRINT_ARENA_MEMORY "Emit info on memory usage" ON)
+
+if(OPTIMIZE_VEC)
+    SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DVEC_TRIE_SUPEROPT")
+endif()
+
+if(OPTIMIZE_VEC)
+    SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -DDUMP_ARENA_STATS")
+endif()
 
 set(ARENA_DIR ${CMAKE_CURRENT_LIST_DIR}/../arena)
 

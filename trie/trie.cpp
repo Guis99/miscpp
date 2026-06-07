@@ -43,9 +43,26 @@ template<> std::shared_ptr<TrieNodeBasic> TrieBasic< std::shared_ptr<TrieNodeBas
 }
 
 // Vector-based trie implementation
+TrieVec::TrieVec(size_t alloc_size) {
+    #ifdef VEC_TRIE_SUPEROPT
+        nodeVector.resize(alloc_size);
+    #else
+        nodeVector.reserve(alloc_size);
+        nodeVector.emplace_back();
+    #endif
+}
+
 size_t TrieVec::addNode(size_t node_idx, size_t child_idx) {
     size_t new_idx = nextIdx++;
-    if (new_idx >= nodeVector.size()) nodeVector.resize(2 * nodeVector.size());
+
+    #ifdef VEC_TRIE_SUPEROPT
+        if (new_idx >= nodeVector.size()) {
+            nodeVector.resize(2 * nodeVector.size());
+        }
+    #else
+        nodeVector.emplace_back();
+    #endif
+
     nodeVector[node_idx].children[child_idx] = new_idx;
     return new_idx;
 }
@@ -60,7 +77,6 @@ void TrieVec::insert(std::string_view key) {
             currNode = addNode(currNode, child_idx);
         }
     }
-
     nodeVector[currNode].isTerminal = true;
 }
 
@@ -74,7 +90,6 @@ bool TrieVec::query(std::string_view key) {
 
         currNode = nodeVector[currNode].children[child_idx];
     }
-
     return nodeVector[currNode].isTerminal;
 }
 

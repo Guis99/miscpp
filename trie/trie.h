@@ -120,9 +120,7 @@ struct TrieNodeVec {
 
 class TrieVec {
     public:
-        TrieVec(size_t alloc_size = 400000) {
-            nodeVector.resize(alloc_size);
-        }
+        TrieVec(size_t alloc_size = 400000);
 
         void insert(std::string_view key);
         void remove_key(std::string_view key);

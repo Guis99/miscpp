@@ -87,7 +87,7 @@ void test_trie_vector() {
 
 void test_trie_arena() {
     std::cout<<"b4 inst"<<std::endl;
-    TrieArena trie = TrieArena(500);
+    TrieArena trie = TrieArena(6000);
     std::cout<<"after inst"<<std::endl;
     trie.insert("hello");
     trie.insert("c");
