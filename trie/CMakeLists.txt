@@ -3,7 +3,7 @@ project(trie CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O2")
+SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O2 -DDUMP_ARENA_STATS")
 
 option(BUILD_TESTS     "Build test executable"      ON)
 option(BUILD_BENCHMARK "Build benchmark executable" ON)

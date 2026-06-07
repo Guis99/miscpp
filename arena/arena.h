@@ -1,16 +1,15 @@
-#include <cstddef>
-#include <cstdint>
-#include <vector>
-#include <iostream>
-
 #ifndef ARENA_HEADER
 #define ARENA_HEADER
 
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
 class Arena {
     public:
-        Arena(size_t block_size, size_t num_blocks);
+        Arena(size_t block_size);
         ~Arena();
-        void* request(size_t mem_size);
+        void* request(size_t mem_size, size_t alignment);
 
         Arena(const Arena&) = delete;
         Arena& operator=(const Arena&) = delete;
@@ -21,7 +20,8 @@ class Arena {
         std::vector<void*> blocks;
         size_t offset; // bytes
         void* curr_block; 
-        size_t block_idx;
+
+        void alloc_new_block();
 };
 
 #endif

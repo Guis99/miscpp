@@ -73,7 +73,7 @@ int main() {
         { // TrieArena
             size_t block = sizeof(TrieNodeRaw) * n * 1;
             // size_t block = 400000;
-            TrieArena trie(block, 4);
+            TrieArena trie(block);
             auto t0 = Clock::now();
             for (const auto& w : words) trie.insert(w);
             auto t1 = Clock::now();

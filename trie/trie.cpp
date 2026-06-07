@@ -1,6 +1,47 @@
 #include "trie.h"
 #include <exception>
 
+namespace trie_util {
+
+static void delete_trie(TrieNodeRaw* node) {
+    if (!node) return;
+    for (auto child : node->children) {
+        delete_trie(child);
+    }
+
+    delete node;
+}
+
+}
+
+// Definition of explicit template decls
+
+// TrieBasic with raw pointer
+template<> TrieBasic<TrieNodeRaw*>::TrieBasic() {
+    rootNode = new TrieNodeRaw();
+}
+
+template<> TrieBasic<TrieNodeRaw*>::~TrieBasic() {
+    trie_util::delete_trie(this->rootNode);
+}
+
+template<> TrieNodeRaw* TrieBasic<TrieNodeRaw*>::addNode(TrieNodeRaw* node, size_t child_idx) {
+    node->children[child_idx] = new TrieNodeRaw();
+    return node->children[child_idx];
+}
+
+// TrieBasic with smart pointer
+template<> TrieBasic< std::shared_ptr<TrieNodeBasic>>::TrieBasic() {
+    rootNode = std::make_shared<TrieNodeBasic>();
+}
+
+template<> TrieBasic<std::shared_ptr<TrieNodeBasic>>::~TrieBasic() = default;
+
+template<> std::shared_ptr<TrieNodeBasic> TrieBasic< std::shared_ptr<TrieNodeBasic>>::addNode(std::shared_ptr<TrieNodeBasic> node, size_t child_idx) {
+    node->children[child_idx] = std::make_shared<TrieNodeBasic>();
+    return node->children[child_idx];
+}
+
 // Vector-based trie implementation
 size_t TrieVec::addNode(size_t node_idx, size_t child_idx) {
     size_t new_idx = nextIdx++;
@@ -44,15 +85,24 @@ void TrieVec::remove_key(std::string_view key) {
         if (nodeVector[currNode].children[child_idx] != 0) {
             currNode = nodeVector[currNode].children[child_idx];
         } else {
-            std::exception();
+            throw std::runtime_error("key not found");
         }
     }
 
     nodeVector[currNode].isTerminal = false;
 }
 
+// Arena allocator-based trie
+
+TrieArena::TrieArena(size_t block_size) : 
+            memoryPool(block_size) {
+    assert(20 * sizeof(TrieNodeRaw) < block_size); // ensure arena has room for at least 20 nodes
+    void* ptr = memoryPool.request(sizeof(TrieNodeRaw), alignof(TrieNodeRaw));
+    this->rootNode = new (ptr) TrieNodeRaw();
+}
+
 TrieNodeRaw* TrieArena::addNode(TrieNodeRaw* node, size_t child_idx) {
-    void* ptr = memoryPool.request(sizeof(TrieNodeRaw));
+    void* ptr = memoryPool.request(sizeof(TrieNodeRaw), alignof(TrieNodeRaw));
     node->children[child_idx] = new (ptr) TrieNodeRaw();
 
     return node->children[child_idx];

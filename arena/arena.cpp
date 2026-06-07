@@ -1,25 +1,23 @@
+#include <iostream>
+#include <memory>
+#include <new>
+
 #include "arena.h"
 
-// Arena allocator-based trie
-Arena::Arena(size_t block_size, size_t num_blocks) :
+Arena::Arena(size_t block_size) :
     block_size(block_size),
-    num_blocks(num_blocks),
-    offset(0),
-    block_idx(0) {
+    num_blocks(1),
+    offset(0) {
 
     curr_block = malloc(block_size);
     blocks.push_back(curr_block);
-
-    for (size_t blk_idx = 1; blk_idx < num_blocks; blk_idx++) {
-        blocks.push_back(malloc(block_size));
-    }
 }
 
 Arena::~Arena() {
     #ifdef DUMP_ARENA_STATS
-        size_t mem = (blocks.size() - 1) * block_size + offset;
+        size_t mem = (num_blocks - 1) * block_size + offset;
         printf("====Arena allocator teardown summary====\n");
-        printf("Total blocks allocated: %zu\n", blocks.size());
+        printf("Total blocks allocated: %zu\n", num_blocks);
         printf("Total memory used: %zu\n", mem);
         printf("=========================================\n");
         std::cout << std::endl;
@@ -29,21 +27,25 @@ Arena::~Arena() {
     }
 }
 
-void* Arena::request(size_t mem_size) {
-    if (offset + mem_size > block_size) {
-        if (block_idx >= num_blocks - 1 ) {
-            curr_block = malloc(block_size);
-            blocks.push_back(curr_block);
-        } else {
-            curr_block = blocks[block_idx+1];
-        }
-        
-        offset = 0;
-        block_idx++;
+void* Arena::request(size_t mem_size, size_t alignment) {
+    void* ptr = static_cast<char*>(curr_block) + offset;
+    size_t space = block_size - offset;
+
+    if (!std::align(alignment, mem_size, ptr, space)) {
+        alloc_new_block();
+        ptr = curr_block;
+        space = block_size;
+        std::align(alignment, mem_size, ptr, space);
     }
 
-    char* place_loc = reinterpret_cast<char*>(curr_block) + offset;
-    offset += mem_size;
+    offset = static_cast<char*>(ptr) - static_cast<char*>(curr_block) + mem_size;
+    return ptr;
+}
 
-    return place_loc;
+void Arena::alloc_new_block() {
+    curr_block = malloc(block_size);
+    if (!curr_block) throw std::bad_alloc();
+
+    blocks.push_back(curr_block);
+    num_blocks++;
 }
