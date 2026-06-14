@@ -1,3 +1,4 @@
 */*.dSYM**
 .clangd
 */*build**
+*/CODE_REVIEW.md

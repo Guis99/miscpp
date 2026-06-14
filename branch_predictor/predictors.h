@@ -9,7 +9,7 @@
 
 class BranchPredictorBase {
 public:
-    virtual bool predict(uint32_t pc) = 0;
+    virtual bool predict(uint32_t pc) const = 0;
     virtual void update(uint32_t pc, BranchResult branch) = 0;
     virtual std::string predictor_name() const = 0;
     virtual ~BranchPredictorBase() = default;
@@ -22,18 +22,23 @@ public:
 class BimodalPredictor : public BranchPredictorBase {
     std::vector<SatCounter<2>> pred_table;
     size_t table_size;
+    size_t pc_mask;
+
+    size_t get_idx(size_t pc) const {
+        return pc & pc_mask;
+    }
     public:
-        BimodalPredictor(size_t table_size) :
-                table_size(table_size) {
-            pred_table.resize(table_size);
+        explicit BimodalPredictor(size_t table_size) :
+                table_size(table_size), pc_mask((1ull << table_size) - 1),
+                pred_table(1ull << table_size, SatCounter<2>()) {
         }
 
         void update(uint32_t pc, BranchResult branch) override {
-            pred_table[pc % table_size].update(branch);
+            pred_table[get_idx(pc)].update(branch);
         }
 
-        bool predict(uint32_t pc) override {
-            return pred_table[pc % table_size].predict();
+        bool predict(uint32_t pc) const override {
+            return pred_table[get_idx(pc)].predict();
         }
 
         std::string predictor_name() const override { return "BimodalPredictor"; }
@@ -50,12 +55,12 @@ class GSharePredictor : public BranchPredictorBase {
 
     public:
         GSharePredictor(size_t table_size, size_t history_length) :
-                table_size(table_size), pc_mask((1ull << table_size) - 1),
-                history_length(history_length), history_mask((1ull << history_length) - 1),
-                pred_table(table_size, SatCounter<2>()),
+                table_size(table_size), history_length(history_length),
+                pc_mask((1ull << table_size) - 1), history_mask((1ull << history_length) - 1),
+                pred_table(1ull << table_size, SatCounter<2>()),
                 history_buffer() {}
 
-        uint64_t get_idx(uint32_t pc) {
+        uint64_t get_idx(uint32_t pc) const {
             size_t history_idx = history_buffer.as_idx() & history_mask; // select lower *history_length* bits
             return (pc ^ history_idx) & pc_mask; // canonical gshare idx construction, select lower table_size bits
         }
@@ -65,7 +70,7 @@ class GSharePredictor : public BranchPredictorBase {
             history_buffer.update(branch);
         }
 
-        bool predict(uint32_t pc) override {
+        bool predict(uint32_t pc) const override {
             return pred_table[get_idx(pc)].predict();
         }
 
@@ -76,7 +81,7 @@ class GSelectPredictor : public BranchPredictorBase {
     public:
         GSelectPredictor(size_t table_size, size_t history_length) {}
 
-        bool predict(uint32_t pc) override { return false; }
+        bool predict(uint32_t pc) const override { return false; }
         void update(uint32_t pc, BranchResult branch) override {}
         std::string predictor_name() const override { return "GSelectPredictor"; }
 };
@@ -92,16 +97,16 @@ class TwoLevelPredictor : public BranchPredictorBase {
 
     public:
         TwoLevelPredictor(size_t table_size, size_t history_length) :
-        table_size(table_size), pc_mask((1ull << table_size) - 1),
-        history_length(history_length), history_mask((1ull << history_length) - 1),
-        pred_table(table_size, std::vector<SatCounter<2>>(1ull << history_length)),
-        branch_history_table(table_size, HistoryBuffer<64>()) {}
+        table_size(table_size), history_length(history_length), 
+        pc_mask((1ull << table_size) - 1), history_mask((1ull << history_length) - 1),
+        pred_table(1ull << table_size, std::vector<SatCounter<2>>(1ull << history_length)),
+        branch_history_table(1ull << table_size, HistoryBuffer<64>()) {}
 
-        uint64_t get_pc_idx(uint32_t pc) {
+        uint64_t get_pc_idx(uint32_t pc) const {
             return pc & pc_mask;
         }
 
-        uint64_t get_history_idx(size_t history) {
+        uint64_t get_history_idx(size_t history) const {
             return branch_history_table[history].as_idx() & history_mask;
         }
 
@@ -113,7 +118,7 @@ class TwoLevelPredictor : public BranchPredictorBase {
             pred_table[pc_idx][history_idx].update(branch); // update counter
         }
 
-        bool predict(uint32_t pc) override {
+        bool predict(uint32_t pc) const override {
             size_t pc_idx = get_pc_idx(pc);
             size_t history_idx = get_history_idx(pc_idx);
 
@@ -144,7 +149,7 @@ class TournamentPredictor : public BranchPredictorBase {
             branch_history_table[pc_idx].update(branch);
         }
 
-        bool predict(uint32_t pc) override { return false; }
+        bool predict(uint32_t pc) const override { return false; }
 
         std::string predictor_name() const override { return "TournamentPredictor"; }
 };

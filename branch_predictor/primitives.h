@@ -22,11 +22,11 @@ class SatCounter {
             else if (!result && val > 0) { val--; } // branch not taken
         }
 
-        bool predict() {
+        bool predict() const {
             return val >= TAKEN_THRESHOLD;
         }
 
-        uint8_t get_val() {
+        uint8_t get_val() const {
             return val;
         }
 };
@@ -45,7 +45,7 @@ class HistoryBuffer {
             history.set(0, result);
         }
 
-        uint64_t as_idx() {
+        uint64_t as_idx() const {
             return history.to_ullong();
         }
 };
