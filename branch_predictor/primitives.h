@@ -1,10 +1,12 @@
+#pragma once
+
 #include <bitset>
 #include <cstdint>
 #include <iostream>
 
 enum BranchResult : bool {
-    TAKEN = 1,
-    NOT_TAKEN = 0
+    NOT_TAKEN = 0,
+    TAKEN = 1
 };
 
 // k-bit saturation counter
@@ -16,11 +18,16 @@ class SatCounter {
     public:
         SatCounter(uint8_t init = TAKEN_THRESHOLD - 1) : val(init) {}
         void update(BranchResult result) {
-            if (result && val < MAX) { val++; }
-            else if (!result && val > 0) { val--; }
+            if (result && val < MAX) { val++; } // branch taken
+            else if (!result && val > 0) { val--; } // branch not taken
         }
-        void predict() {
+
+        bool predict() {
             return val >= TAKEN_THRESHOLD;
+        }
+
+        uint8_t get_val() {
+            return val;
         }
 };
 
@@ -31,7 +38,7 @@ class HistoryBuffer {
 
     public:
         HistoryBuffer() :
-            history(0x00) {}
+            history(0x0) {}
         
         void update(BranchResult result) {
             history <<= 1;
