@@ -7,6 +7,11 @@
 #include <array>
 #include <cassert>
 
+using u8 = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
+
 enum BranchResult : bool {
     NOT_TAKEN = 0,
     TAKEN = 1
@@ -15,11 +20,11 @@ enum BranchResult : bool {
 // k-bit saturation counter
 template <unsigned n_bits>
 class SatCounter {
-    static constexpr uint8_t MAX = (1u << n_bits) - 1;
-    static constexpr uint8_t TAKEN_THRESHOLD = 1u << (n_bits - 1);
-    uint8_t val;
+    static constexpr u8 MAX = (1u << n_bits) - 1;
+    static constexpr u8 TAKEN_THRESHOLD = 1u << (n_bits - 1);
+    u8 val;
     public:
-        SatCounter(uint8_t init = TAKEN_THRESHOLD - 1) : val(init) {}
+        SatCounter(u8 init = TAKEN_THRESHOLD - 1) : val(init) {}
         void update(BranchResult result) {
             if (result && val < MAX) { val++; } // branch taken
             else if (!result && val > 0) { val--; } // branch not taken
@@ -29,11 +34,11 @@ class SatCounter {
             return val >= TAKEN_THRESHOLD;
         }
 
-        uint8_t get_val() const {
+        u8 get_val() const {
             return val;
         }
 
-        void set_val(uint8_t val) { this->val = val; }
+        void set_val(u8 val) { this->val = val; }
 };
 
 // static inline 
@@ -61,13 +66,13 @@ class HistoryBuffer {
             return 0;
         }
 
-        uint16_t as_folded_idx(size_t pc, size_t mask, size_t width, uint16_t length) const {
+        u16 as_folded_idx(size_t pc, size_t mask, size_t width, u16 length) const {
             auto num_iter = length / width;
             auto rem = length % width;
 
-            uint16_t start = 0;
+            u16 start = 0;
 
-            uint16_t idx = pc & mask;
+            u16 idx = pc & mask;
             for (int i = 0; i < num_iter; i++) {
                 idx ^= get_bit_range(start, width);
                 start += width;
@@ -78,9 +83,14 @@ class HistoryBuffer {
             return idx;
         }
 
-        size_t get_bit_range(uint16_t start, size_t num_bits) const {
+        size_t get_bit_range(u16 start, size_t num_bits) const {
             size_t mask = (1ull << num_bits) - 1;
             return ((history >> start) & std::bitset<hist_len>(mask)).to_ullong();
+        }
+
+        bool get_bit_at(size_t idx) {
+            assert(idx < hist_len);
+            return history[idx];
         }
 
         void print() {
@@ -137,37 +147,63 @@ class Perceptron {
 };
 
 // TAGE-specific
-
-struct BaseEntry {
-    SatCounter<3> _ctr = SatCounter<3>();
-
-    bool predict() {
-        return _ctr.predict();
-    }
-};
-
 class TagEntry {
     SatCounter<3> _ctr;
     SatCounter<2> _u;
-    uint16_t _tag;
+    u16 _tag;
+    bool _allocated;
 
     public:
         TagEntry() :
-                _ctr(), _u(),
+                _ctr(), _u(0),
                 _tag(0)
             {}
 
-        bool match_tag(uint16_t tag) {
-            return tag == _tag;
+        void allocate(u16 tag, bool br) {
+            _tag = tag;
+            _ctr.set_val(3 + br);
+            _u.set_val(0);
+            _allocated = true;
+        }
+
+        void clear() {
+            _u.set_val(0);
+        }
+
+        bool match_tag(u16 tag) {
+            return _allocated && tag == _tag;
+        }
+
+        bool is_allocated() {
+            return _allocated;
         }
 
         void update_ctr(BranchResult result) { _ctr.update(result); }
         void update_u(BranchResult result) { _u.update(result); }
 
         bool predict() { return _ctr.predict(); }
-        uint8_t get_u() { return _u.get_val(); }
+        u8 get_u() { return _u.get_val(); }
+        u8 get_ctr() { return _ctr.get_val(); }
 
-        void set_tag(uint16_t tag) { _tag = tag; }
-        void set_ctr(uint8_t val) { _ctr.set_val(val); }
-        void set_u(uint8_t val) { _u.set_val(val); }
+        void set_tag(u16 tag) { _tag = tag; }
+        void set_ctr(u8 val) { _ctr.set_val(val); }
+        void set_u(u8 val) { _u.set_val(val); }
+};
+
+struct csr {
+    u32 hash = 0; // will never take up more than 16 bits
+    u32 mask; // (1ul << idx_width) - 1
+    u32 width;
+    u8 cutoff; // (history_length - 1)% idx_width
+
+    csr() { mask = 0; width = 0; cutoff = 0; } // NEVER use this
+
+    csr(u32 mask, u32 width, u8 cutoff) : mask(mask), width(width), cutoff(cutoff) {}
+
+    void shift_and_fold(BranchResult branch, bool oldest) {
+        u32 out = hash ^ (oldest << cutoff);
+        out = (out << 1) | (out >> (width));
+        out ^= branch;
+        hash = out & mask;
+    }
 };

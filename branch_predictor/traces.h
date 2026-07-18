@@ -62,3 +62,9 @@ std::vector<BranchInstr> xor_correlated_branch(
     uint32_t pc3,
     uint32_t id3
 ); // branch3 = branch1 XOR branch2
+
+std::vector<BranchInstr> imitate_branch(
+    size_t reps,
+    uint32_t pc1,
+    uint32_t id1
+); // randomly selects k from [0,7], k T followed by k NT

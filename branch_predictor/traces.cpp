@@ -70,3 +70,28 @@ std::vector<BranchInstr> xor_correlated_branch(
     assert(out.size() == 3 * reps);
     return out;
 }
+
+std::vector<BranchInstr> imitate_branch(
+    size_t reps,
+    uint32_t pc1,
+    uint32_t id1
+) {
+    std::vector<BranchInstr> out; out.reserve(7 * 2 * reps);
+    uint64_t state = 0x9e3779b97f4a7c15ULL;
+    for (size_t i = 0; i < reps; i++) {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        uint64_t bits = state * 0x2545f4914f6cdd1dULL;
+
+        uint64_t first = bits & 7ULL; // mask to max 7 (111)
+        for (size_t i = 0; i < first; i++) {
+            out.emplace_back(BranchResult::TAKEN, pc1, id1);
+        } 
+
+        for (size_t i = 0; i < first; i++) {
+            out.emplace_back(BranchResult::NOT_TAKEN, pc1, id1);
+        } 
+    }
+    return out;
+}

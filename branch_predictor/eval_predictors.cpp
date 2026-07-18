@@ -101,7 +101,7 @@ static const std::vector<PredictorSpec> kPredictors = {
      [](size_t ts, size_t hl) { return std::make_unique<PerceptronPredictor>(ts, hl); },
      false},
      {"TAGEPredictor",
-     [](size_t ts, size_t) { return std::make_unique<TAGEPredictor>(ts, ts-1, 5, 4); },
+     [](size_t ts, size_t) { return std::make_unique<TAGEPredictor<256, 6>>(ts, ts-1, 6, 4, 2); },
      false},
     // McFarling's canonical combined predictor: bimodal + gshare with a 2-bit
     // meta-counter per PC. Meta-table sized at `ts`, same as the sub-predictors.
