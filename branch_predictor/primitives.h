@@ -156,7 +156,7 @@ class TagEntry {
     public:
         TagEntry() :
                 _ctr(), _u(0),
-                _tag(0)
+                _tag(0), _allocated(false)
             {}
 
         void allocate(u16 tag, bool br) {

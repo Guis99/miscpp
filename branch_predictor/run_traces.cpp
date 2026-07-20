@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <vector>
 
-
 #define FACTOR 10
 #define IW 9
 #define TW 7
@@ -16,11 +15,11 @@ void print_score(BranchPredictorBase* predictor, std::string title, size_t score
     std::cout << "[" << *predictor << "] " << title << ": Predicted " << score << " out of " << seq_len << " correctly (" << perc << "%)" << std::endl;
 }
 
-// ---- Generic trace functions ----
-
 size_t num_reps = 1024 << FACTOR;
+
+// ---- Generic trace functions ----
 std::vector<BranchInstr> v_trace_1_0 = repeating_pattern(1, 1, num_reps);
-std::vector<BranchInstr> v_trace_taken_then_not_taken = repeating_pattern(1, 1, num_reps);
+std::vector<BranchInstr> v_trace_taken_then_not_taken = repeating_pattern(num_reps, num_reps, 1);
 std::vector<BranchInstr> v_trace_3_3 = repeating_pattern(3, 3, num_reps);
 std::vector<BranchInstr> v_trace_6_2 = repeating_pattern(6, 2, num_reps);
 std::vector<BranchInstr> v_trace_8_8 = repeating_pattern(8, 8, num_reps);

@@ -239,12 +239,24 @@ class TAGEPredictor : public BranchPredictorBase {
     bool _top_pred = false;
     bool _alt_pred = false;
 
+#ifdef TAGE_STATS
+    // temporary diagnostics, slot 0 = bimodal base, slot i+1 = bank i
+    std::array<u64, NC+1> _stat_prov_cnt = {};
+    std::array<u64, NC+1> _stat_prov_miss = {};
+    u64 _stat_total = 0;
+    u64 _stat_alt_used = 0, _stat_alt_used_miss = 0, _stat_alt_prov_miss = 0;
+    u64 _stat_alloc_attempt = 0, _stat_alloc_success = 0, _stat_resets = 0;
+#endif
+
     size_t _get_idx(size_t pc) {
         return pc & _pc_mask;
     }
 
     void _allocate_new(bool should_flip) {
         bool allocated = false;
+#ifdef TAGE_STATS
+        _stat_alloc_attempt++;
+#endif
         for (u8 i = _top_idx+1; i < NC; i++) {
             auto b_idx = _idx_cache[i];
             auto b_useful = _banks[i][b_idx].get_u();
@@ -252,6 +264,9 @@ class TAGEPredictor : public BranchPredictorBase {
                 auto b_tag = _idx_cache[i+NC];
                 _banks[i][b_idx].allocate(b_tag, should_flip);
                 allocated = true;
+#ifdef TAGE_STATS
+                _stat_alloc_success++;
+#endif
                     
                 break;
             }
@@ -266,6 +281,9 @@ class TAGEPredictor : public BranchPredictorBase {
     }
 
     void _reset_all_banks() {
+#ifdef TAGE_STATS
+        _stat_resets++;
+#endif
         for (auto& bank : _banks) {
             for (auto& entry : bank) {
                 entry.clear();
@@ -298,6 +316,18 @@ class TAGEPredictor : public BranchPredictorBase {
         void update(u32 pc, BranchResult branch) override {
             bool provider_corr = _top_pred == branch;
             bool alt_corr = _alt_pred == branch;
+
+#ifdef TAGE_STATS
+            _stat_total++;
+            const bool final_pred = _alt_on_new ? _alt_pred : _top_pred;
+            _stat_prov_cnt[_top_idx+1]++;
+            if (final_pred != branch) { _stat_prov_miss[_top_idx+1]++; }
+            if (_alt_on_new) {
+                _stat_alt_used++;
+                if (_alt_pred != branch) { _stat_alt_used_miss++; }
+                if (_top_pred != branch) { _stat_alt_prov_miss++; }
+            }
+#endif
             
             if (!provider_corr && !_alt_on_new) {
                 _allocate_new(branch);
@@ -368,4 +398,26 @@ class TAGEPredictor : public BranchPredictorBase {
         }
 
         std::string predictor_name() const override { return "TAGE"; }
+
+#ifdef TAGE_STATS
+        void print_stats() const {
+            auto pct = [](u64 num, u64 den) { return den ? 100.0 * num / den : 0.0; };
+            std::cout << "==== TAGE_STATS ====\n";
+            std::cout << "total updates: " << _stat_total << "\n";
+            for (int i = 0; i <= NC; i++) {
+                if (i == 0) { std::cout << "bimodal        "; }
+                else { std::cout << "bank " << i-1 << " (h=" << _history_lengths[i-1] << ")"; }
+                std::cout << ": provided " << _stat_prov_cnt[i]
+                          << " (" << pct(_stat_prov_cnt[i], _stat_total) << "%)"
+                          << ", final MR " << pct(_stat_prov_miss[i], _stat_prov_cnt[i]) << "%\n";
+            }
+            std::cout << "alt_on_new used: " << _stat_alt_used
+                      << " (" << pct(_stat_alt_used, _stat_total) << "%)"
+                      << ", MR when used " << pct(_stat_alt_used_miss, _stat_alt_used) << "%"
+                      << " (provider would have had MR " << pct(_stat_alt_prov_miss, _stat_alt_used) << "%)\n";
+            std::cout << "alloc attempts: " << _stat_alloc_attempt
+                      << ", success " << pct(_stat_alloc_success, _stat_alloc_attempt) << "%"
+                      << ", u-resets: " << _stat_resets << "\n";
+        }
+#endif
 };
