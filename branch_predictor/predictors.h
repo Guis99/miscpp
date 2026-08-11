@@ -11,11 +11,15 @@
 
 #include "primitives.h"
 
+#define TAGE_STATS
+#undef TAGE_STATS
+
 class BranchPredictorBase {
 public:
-    virtual bool predict(u32 pc) = 0;
-    virtual void update(u32 pc, BranchResult branch) = 0;
+    virtual bool predict(u64 pc) = 0;
+    virtual void update(u64 pc, BranchResult branch) = 0;
     virtual std::string predictor_name() const = 0;
+    virtual u64 get_size() const = 0;
     virtual ~BranchPredictorBase() = default;
 
     friend std::ostream& operator<<(std::ostream& os, const BranchPredictorBase& p) {
@@ -37,15 +41,19 @@ class BimodalPredictor : public BranchPredictorBase {
                 pred_table(this->table_size, SatCounter<2>()) {
         }
 
-        void update(u32 pc, BranchResult branch) override {
+        void update(u64 pc, BranchResult branch) override {
             pred_table[get_idx(pc)].update(branch);
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             return pred_table[get_idx(pc)].predict();
         }
 
         std::string predictor_name() const override { return "Bimodal"; }
+
+        u64 get_size() const override {
+            return 2 * table_size;
+        }
 };
 
 class GSharePredictor : public BranchPredictorBase {
@@ -69,24 +77,28 @@ class GSharePredictor : public BranchPredictorBase {
             return (pc ^ history_idx) & pc_mask; // canonical gshare idx construction, select lower table_size bits
         }
 
-        void update(u32 pc, BranchResult branch) override {
+        void update(u64 pc, BranchResult branch) override {
             pred_table[get_idx(pc)].update(branch);
             history_buffer.update(branch);
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             return pred_table[get_idx(pc)].predict();
         }
 
         std::string predictor_name() const override { return "GShare"; }
+
+        u64 get_size() const override {
+            return history_length + 2 * table_size;
+        }
 };
 
 class GSelectPredictor : public BranchPredictorBase {
     public:
         GSelectPredictor(size_t table_size, size_t history_length) {}
 
-        bool predict(u32 pc) override { return false; }
-        void update(u32 pc, BranchResult branch) override {}
+        bool predict(u64 pc) override { return false; }
+        void update(u64 pc, BranchResult branch) override {}
         std::string predictor_name() const override { return "GSelect"; }
 };
 
@@ -114,7 +126,7 @@ class TwoLevelPredictor : public BranchPredictorBase {
             return branch_history_table[history].as_idx() & history_mask;
         }
 
-        void update(u32 pc, BranchResult branch) override {
+        void update(u64 pc, BranchResult branch) override {
             size_t pc_idx = get_pc_idx(pc);
             size_t history_idx = get_history_idx(pc_idx);
 
@@ -122,7 +134,7 @@ class TwoLevelPredictor : public BranchPredictorBase {
             pred_table[pc_idx][history_idx].update(branch); // update counter
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             size_t pc_idx = get_pc_idx(pc);
             size_t history_idx = get_history_idx(pc_idx);
 
@@ -130,6 +142,10 @@ class TwoLevelPredictor : public BranchPredictorBase {
         }
 
         std::string predictor_name() const override { return "TwoLevel"; }
+
+        u64 get_size() const override {
+            return 2 * table_size;
+        }
 };
 
 template <class Pred1, class Pred2>
@@ -150,7 +166,7 @@ class TournamentPredictor : public BranchPredictorBase {
 
         size_t get_idx(size_t pc) const { return pc & pc_mask; }
 
-        void update(u32 pc, BranchResult branch) override {
+        void update(u64 pc, BranchResult branch) override {
             size_t pc_idx = get_idx(pc);
             
             bool pred1_correct = last_pred_1 == branch;
@@ -166,7 +182,7 @@ class TournamentPredictor : public BranchPredictorBase {
             predictor_2.update(pc, branch);
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             size_t pc_idx = get_idx(pc);
 
             last_pred_1 = predictor_1.predict(pc);
@@ -181,6 +197,10 @@ class TournamentPredictor : public BranchPredictorBase {
         }
 
         std::string predictor_name() const override { return "Tournament(" + predictor_1.predictor_name() + "," + predictor_2.predictor_name() + ")"; }
+
+        u64 get_size() const override {
+            return 2 * table_size + predictor_1.get_size() + predictor_2.get_size();
+        }
 };
 
 #define PRINT_ALLOC_DEBUG false
@@ -204,16 +224,20 @@ class PerceptronPredictor : public BranchPredictorBase {
                 pred_table(this->table_size, Perceptron(history_length)),
                 history_buffer() {}
 
-        void update(u32 pc, BranchResult branch) override {
+        void update(u64 pc, BranchResult branch) override {
             pred_table[get_idx(pc)].update(branch, history_buffer.as_idx() & history_mask, history_length);
             history_buffer.update(branch);
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             return pred_table[get_idx(pc)].predict(history_buffer.as_idx() & history_mask, history_length);
         }
 
         std::string predictor_name() const override { return "PerceptronPredictor"; }
+
+        u64 get_size() const override {
+            return 2 * table_size;
+        }
 };
 
 template<int H, int NC>
@@ -232,6 +256,8 @@ class TAGEPredictor : public BranchPredictorBase {
     std::array<u16, NC> _history_lengths = {};
     std::array<u16, 2*NC> _idx_cache = {};
 
+    SatCounter<4> _aon_tracker = {};
+
     size_t _branches_seen = 0;
     int8_t _top_idx = -1;
 
@@ -245,6 +271,7 @@ class TAGEPredictor : public BranchPredictorBase {
     std::array<u64, NC+1> _stat_prov_miss = {};
     u64 _stat_total = 0;
     u64 _stat_alt_used = 0, _stat_alt_used_miss = 0, _stat_alt_prov_miss = 0;
+    u64 _stat_alt_accepted = 0, _stat_alt_rejected = 0;
     u64 _stat_alloc_attempt = 0, _stat_alloc_success = 0, _stat_resets = 0;
 #endif
 
@@ -300,20 +327,27 @@ class TAGEPredictor : public BranchPredictorBase {
                 _pred_table(_table_size, SatCounter<2>()), 
                 _banks(NC, std::vector<TagEntry>(_table_size, TagEntry()))
             {
+                float factor = 1.0;
                 for (int i = 0; i < NC; i++) {
-                    if (L1 > H) {
+                    u16 hl = L1 * factor;
+                    // std::cout << hl << std::endl;
+                    if (hl > H) {
                         char err_msg[50];
-                        snprintf(err_msg, 49, "%d is greater than the max history length of %d", L1, H);
+                        snprintf(err_msg, 49, "%d is greater than the max history length of %d",hl, H);
                         throw(std::runtime_error(err_msg));
                     }
-                    _history_lengths[i] = L1;    
-                    _hashes[2*i] = csr(_pc_mask, _idx_width - 1, (L1 - 1) % idx_width);
-                    _hashes[2*i+1] = csr(_tag_mask, _tag_width - 1, (L1 - 1) % tag_width);
-                    L1 *= ratio;    
+                    _history_lengths[i] = hl;    
+                    _hashes[2*i] = csr(_pc_mask, _idx_width, (hl - 1) % idx_width);
+                    _hashes[2*i+1] = csr(_tag_mask, _tag_width, (hl - 1) % tag_width);
+                    factor *= ratio;    
                 }
         }
 
-        void update(u32 pc, BranchResult branch) override {
+        ~TAGEPredictor() {
+            print_stats();
+        }
+
+        void update(u64 pc, BranchResult branch) override {
             bool provider_corr = _top_pred == branch;
             bool alt_corr = _alt_pred == branch;
 
@@ -326,11 +360,17 @@ class TAGEPredictor : public BranchPredictorBase {
                 _stat_alt_used++;
                 if (_alt_pred != branch) { _stat_alt_used_miss++; }
                 if (_top_pred != branch) { _stat_alt_prov_miss++; }
+                if (_aon_tracker.predict()) { _stat_alt_accepted++; }
+                if (!_aon_tracker.predict()) { _stat_alt_rejected++; }
             }
 #endif
             
             if (!provider_corr && !_alt_on_new) {
                 _allocate_new(branch);
+            }
+
+            if (_alt_on_new) {
+                _aon_tracker.update(BranchResult(alt_corr));
             }
 
             if (_top_idx > -1) {
@@ -362,7 +402,7 @@ class TAGEPredictor : public BranchPredictorBase {
             }
         }
 
-        bool predict(u32 pc) override {
+        bool predict(u64 pc) override {
             _top_pred = _pred_table[_get_idx(pc)].predict();
             _alt_pred = _top_pred;
             _top_idx = -1;
@@ -390,7 +430,7 @@ class TAGEPredictor : public BranchPredictorBase {
                 auto top_idx = _idx_cache[_top_idx];
                 if (_banks[_top_idx][top_idx].get_u() == 0 && (_banks[_top_idx][top_idx].get_ctr() == 3 || _banks[_top_idx][top_idx].get_ctr() == 4)) {
                     _alt_on_new = true;
-                    return _alt_pred;
+                    return _aon_tracker.predict() ? _alt_pred : _top_pred;
                 }
             }
 
@@ -399,8 +439,15 @@ class TAGEPredictor : public BranchPredictorBase {
 
         std::string predictor_name() const override { return "TAGE"; }
 
-#ifdef TAGE_STATS
+        u64 get_size() const override {
+            u64 bits_per_table = 3 + 2 + (_tag_mask + 1) + 1; // 3-bt ctr, 2-bit u, _tag_width bit tag, allocated bit
+            u64 bits_in_base = 2 * _table_size;
+            u64 csrs = NC * (_idx_width + _tag_width);
+            return bits_per_table * NC + bits_in_base + H + csrs;
+        }
+
         void print_stats() const {
+            #ifdef TAGE_STATS
             auto pct = [](u64 num, u64 den) { return den ? 100.0 * num / den : 0.0; };
             std::cout << "==== TAGE_STATS ====\n";
             std::cout << "total updates: " << _stat_total << "\n";
@@ -414,10 +461,13 @@ class TAGEPredictor : public BranchPredictorBase {
             std::cout << "alt_on_new used: " << _stat_alt_used
                       << " (" << pct(_stat_alt_used, _stat_total) << "%)"
                       << ", MR when used " << pct(_stat_alt_used_miss, _stat_alt_used) << "%"
-                      << " (provider would have had MR " << pct(_stat_alt_prov_miss, _stat_alt_used) << "%)\n";
+                      << " (provider would have had MR " << pct(_stat_alt_prov_miss, _stat_alt_used) << "%)\n"
+                      << "alt_on_new overriden: " << _stat_alt_rejected
+                      << ", alt_on_new success: " << _stat_alt_accepted << "\n";
             std::cout << "alloc attempts: " << _stat_alloc_attempt
                       << ", success " << pct(_stat_alloc_success, _stat_alloc_attempt) << "%"
                       << ", u-resets: " << _stat_resets << "\n";
+            #endif
         }
-#endif
+
 };

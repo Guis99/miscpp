@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-#define FACTOR 10
+#define FACTOR 6
 #define IW 9
 #define TW 7
 // magic number: 1024 << 15 ~= 3e7 - size of average CBP benchmark 
@@ -357,9 +357,9 @@ void run_trace_imitate_perc() {
 
 // TAGE runners
 
-#define NUM_COMP 5
+#define NUM_COMP 12
 #define L1 4
-#define R 2
+#define R 1.6
 #define H_SIZE 1024
 
 void run_trace_1_0_tage() {

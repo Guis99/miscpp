@@ -2,3 +2,6 @@
 .clangd
 */*build**
 */CODE_REVIEW.md
+.claude**
+
+*/*scratch.md**

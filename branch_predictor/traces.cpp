@@ -5,7 +5,7 @@ std::vector<BranchInstr> repeating_pattern(
     size_t num_taken,
     size_t num_not_taken,
     size_t reps,
-    uint32_t pc,
+    u64 pc,
     uint32_t id
 ) {
     size_t seq_len = reps * (num_taken + num_not_taken);
@@ -25,9 +25,9 @@ std::vector<BranchInstr> repeating_pattern(
 
 std::vector<BranchInstr> correlated_branch(
     size_t reps,
-    uint32_t pc1,
+    u64 pc1,
     uint32_t id1,
-    uint32_t pc2,
+    u64 pc2,
     uint32_t id2,
     bool anti
 ) {
@@ -46,11 +46,11 @@ std::vector<BranchInstr> correlated_branch(
 
 std::vector<BranchInstr> xor_correlated_branch(
     size_t reps,
-    uint32_t pc1,
+    u64 pc1,
     uint32_t id1,
-    uint32_t pc2,
+    u64 pc2,
     uint32_t id2,
-    uint32_t pc3,
+    u64 pc3,
     uint32_t id3
 ) {
     std::vector<BranchInstr> out; out.reserve(3 * reps);
@@ -73,7 +73,7 @@ std::vector<BranchInstr> xor_correlated_branch(
 
 std::vector<BranchInstr> imitate_branch(
     size_t reps,
-    uint32_t pc1,
+    u64 pc1,
     uint32_t id1
 ) {
     std::vector<BranchInstr> out; out.reserve(7 * 2 * reps);

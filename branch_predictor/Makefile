@@ -1,17 +1,18 @@
-.PHONY: help configure build run clean check-build-dir eval-bp-basic eval-bp test-prim
+.PHONY: help configure build run clean check-build-dir eval-bp-basic eval-bp test-prim regression-tage
 
 .DEFAULT_GOAL := help
 
 BUILD_DIR := build
 CMAKE := cmake
 RUN_TARGETS := $(filter-out run,$(MAKECMDGOALS))
-VALID_RUN_TARGETS := eval-bp-basic eval-bp test-prim
+VALID_RUN_TARGETS := eval-bp-basic eval-bp test-prim regression-tage
 
 help:
 	@echo "usage:"
 	@echo "  make run eval-bp-basic"
 	@echo "  make run eval-bp"
 	@echo "  make run test-prim"
+	@echo "  make run regression-tage"
 	@echo "  make build"
 	@echo "  make clean"
 
@@ -50,9 +51,9 @@ clean:
 	fi
 
 ifeq ($(firstword $(MAKECMDGOALS)),run)
-eval-bp-basic eval-bp test-prim:
+eval-bp-basic eval-bp test-prim regression-tage:
 	@:
 else
-eval-bp-basic eval-bp test-prim: configure
+eval-bp-basic eval-bp test-prim regression-tage: configure
 	$(CMAKE) --build $(BUILD_DIR) --target $@
 endif

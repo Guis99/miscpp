@@ -1,0 +1,3 @@
+[submodule "branch_predictor/cbp2025"]
+	path = branch_predictor/cbp2025
+	url = git@github.com:Guis99/cbp2025.git

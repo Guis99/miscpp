@@ -606,7 +606,7 @@ int main() {
 
     test_folded_tracker_1();
     
-    test_perceptron_1();
-    test_perceptron_1();
-    test_perceptron_1();
+    // test_perceptron_1();
+    // test_perceptron_1();
+    // test_perceptron_1();
 }

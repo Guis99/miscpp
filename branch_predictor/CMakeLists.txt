@@ -8,6 +8,7 @@ SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O2")
 option(BUILD_TESTS           "Build test executable"                ON)
 option(BUILD_RUN_TRACES      "Build trace runner executable"        ON)
 option(BUILD_EVAL_PREDICTORS "Build predictor evaluation executable" ON)
+option(BUILD_REGRESSION      "Build TAGEImproved regression guard"  ON)
 
 # export: static library
 add_library(branch_predictor_lib STATIC
@@ -52,6 +53,19 @@ if(BUILD_EVAL_PREDICTORS)
     add_custom_target(eval-bp
         COMMAND $<TARGET_FILE:eval_predictors>
         DEPENDS eval_predictors
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+endif()
+
+# regression: TAGEImproved must stay within MIN_RATIO of TAGE on sanity traces
+if(BUILD_REGRESSION)
+    add_executable(regression_tage regression_tage.cpp)
+    target_link_libraries(regression_tage PRIVATE branch_predictor_lib)
+    target_include_directories(regression_tage PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+
+    add_custom_target(regression-tage
+        COMMAND $<TARGET_FILE:regression_tage>
+        DEPENDS regression_tage
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
 endif()
