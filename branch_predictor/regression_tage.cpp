@@ -15,13 +15,21 @@
 // bar can't silently drop if TAGE itself regresses), capture the printed
 // "base" column into a constant table and compare against that instead.
 //
+// NOTE: the two predictors no longer share a constructor. TAGEPredictor takes
+// (idx_width, tag_width, num_comp, L1, ratio); TAGEImproved takes the new
+// interleaved-bank geometry below. score() therefore takes an already-built
+// predictor by reference, and each type is constructed at its own call site.
+//
 // Build/run:  make run regression-tage
 // ===========================================================================
+
+#define TAGE_STATS
 
 #include "predictors.h"
 #include "tage_improved.h"
 #include "traces.h"
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <iomanip>
@@ -30,18 +38,29 @@
 #include <string>
 #include <vector>
 
-#ifdef TAGE_STATS
-#undef TAGE_STATS
-#define TAGE_STATS 0
-#endif
-
-// --- Predictor geometry: keep in sync with the TAGE runners in run_traces.cpp
+// --- TAGE baseline geometry: keep in sync with the runners in run_traces.cpp
 #define IW 9        // index width
 #define TW 7        // tag width
 #define NUM_COMP 12 // tagged component banks
 #define L1 4        // shortest history length
-#define R 1.6f      // geometric history ratio
-#define H_SIZE 1024 // history buffer capacity
+#define R 1.5f      // geometric history ratio
+#define H_SIZE 3000 // history buffer capacity
+
+// --- TAGEImproved geometry (new interleaved-bank interface).
+//     Placeholder values; tune as the design firms up. nLookups = 2 * TI_NC.
+#define TI_NC          12   // number of history lengths
+#define TI_N_L         6   // lower (short-tag) banks   -- sizing only
+#define TI_N_U         15   // upper (long-tag)  banks   -- sizing only
+#define TI_BASE_IW     9    // base table index width
+#define TI_TAGE_IW     9    // tagged bank index width
+#define TI_SHORT_TW    7    // short tag width
+#define TI_LONG_TW     10    // long tag width
+#define TI_FIRST_LONG  7   // first long-tag table (1-based lookup index)
+#define TI_MIN_HIST    4    // shortest history length
+#define TI_MAX_HIST    2000  // longest history length
+
+// nLookups the TAGEImproved template exposes for the given TI_NC.
+constexpr int TI_NLOOKUPS = 2 * TI_NC;
 
 // --- Trace size (matches run_traces.cpp's FACTOR); override at compile time.
 #ifndef FACTOR
@@ -54,7 +73,7 @@
 #endif
 
 using TAGE_t = TAGEPredictor<H_SIZE, NUM_COMP>;
-using TAGEImproved_t = TAGEImproved<H_SIZE, 8, 4>;
+using TAGEImproved_t = TAGEImproved<TI_N_L, TI_N_U, TI_NC>;
 
 namespace {
 
@@ -66,21 +85,36 @@ struct Case {
     int score_id;  // kScoreAll, or a specific branch id to score
 };
 
-// Fresh predictor per case; identical trace fed to both predictors so any
-// nondeterminism in a generator (e.g. imitate_branch) cancels in the ratio.
+// Score an already-constructed predictor against a trace. The same trace is
+// fed to both predictors so any nondeterminism in a generator (e.g.
+// imitate_branch) cancels in the ratio. Templated only so it accepts either
+// concrete predictor type; the predictor is owned by the caller.
 template <class Pred>
-double score(const Case& c) {
-    Pred p(IW, TW, NUM_COMP, L1, R);
+double score(const Case& c, Pred& predictor) {
     size_t correct = 0, total = 0;
     for (const auto& b : c.trace) {
-        bool pred = p.predict(b.pc);
+        bool prediction = predictor.predict(b.pc);
         if (c.score_id == kScoreAll || b.id == static_cast<uint32_t>(c.score_id)) {
-            correct += (pred == b.direction);
+            correct += (prediction == b.direction);
             ++total;
         }
-        p.update(b.pc, b.direction);
+        predictor.update(b.pc, b.direction);
     }
     return total ? static_cast<double>(correct) / static_cast<double>(total) : 0.0;
+}
+
+// Build a fresh baseline TAGE predictor.
+TAGE_t make_baseline() {
+    return TAGE_t(IW, TW, NUM_COMP, L1, R);
+}
+
+// Build a fresh TAGEImproved predictor with the geometry defined above.
+TAGEImproved_t make_improved() {
+    std::array<bool, TI_NLOOKUPS+1> no_skip;
+    no_skip.fill(true);
+    return TAGEImproved_t(TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                          TI_FIRST_LONG,
+                          TI_MIN_HIST, TI_MAX_HIST, no_skip);
 }
 
 std::string pct(double x) {
@@ -114,8 +148,11 @@ int main() {
 
     int failures = 0;
     for (const auto& c : cases) {
-        double base = score<TAGE_t>(c);
-        double improved = score<TAGEImproved_t>(c);
+        TAGE_t base_pred = make_baseline();
+        TAGEImproved_t impr_pred = make_improved();
+
+        double base = score(c, base_pred);
+        double improved = score(c, impr_pred);
         double required = MIN_RATIO * base;
         // Tiny tolerance so exact-equal baselines never flake on rounding.
         bool ok = improved >= required - 1e-9;
@@ -142,5 +179,14 @@ int main() {
     }
     std::cout << "All traces within " << std::fixed << std::setprecision(2)
               << MIN_RATIO << "x of TAGE baseline.\n";
+
+    auto tb = make_baseline();
+    auto ti = make_improved();
+    std::cout << "=====Storage comparison=====\n" 
+              << "TAGE base: " <<  (tb.get_size() >> 13) << " kB" << "\n"
+              << "TAGE improved: " << (ti.get_size() >> 13) << " kB" << std::endl;
+
+    // tb.print_stats();
+    // ti.print_stats();
     return 0;
 }

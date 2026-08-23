@@ -1,6 +1,7 @@
 */*.dSYM**
 .clangd
 */*build**
+*/*bin**
 */CODE_REVIEW.md
 .claude**
 

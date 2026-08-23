@@ -441,6 +441,7 @@ int main() {
     run_trace_imitate_perc();
 
     std::cout << "======TAGE sanity checks======" << std::endl;
+    
     run_trace_1_0_tage();
     run_trace_taken_then_not_taken_tage();
     run_trace_3_3_tage();

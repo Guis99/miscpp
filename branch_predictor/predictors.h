@@ -11,8 +11,8 @@
 
 #include "primitives.h"
 
-#define TAGE_STATS
-#undef TAGE_STATS
+// #define TAGE_STATS
+// #undef TAGE_STATS
 
 class BranchPredictorBase {
 public:
@@ -252,9 +252,9 @@ class TAGEPredictor : public BranchPredictorBase {
     std::vector<SatCounter<2>> _pred_table;
     std::vector<std::vector<TagEntry>> _banks;
 
-    std::array<csr, 2*NC> _hashes = {};
-    std::array<u16, NC> _history_lengths = {};
-    std::array<u16, 2*NC> _idx_cache = {};
+    std::array<csr, 2*NC> _hashes;
+    std::array<u16, NC> _history_lengths;
+    std::array<u16, 2*NC> _idx_cache;
 
     SatCounter<4> _aon_tracker = {};
 
@@ -275,8 +275,14 @@ class TAGEPredictor : public BranchPredictorBase {
     u64 _stat_alloc_attempt = 0, _stat_alloc_success = 0, _stat_resets = 0;
 #endif
 
-    size_t _get_idx(size_t pc) {
+    size_t _get_idx(size_t pc) const {
         return pc & _pc_mask;
+    }
+
+    bool _is_entry_new(u16 top_idx) const {
+        bool u_zeroed = _banks[_top_idx][top_idx].get_u() == 0;
+        bool ctr_weak = _banks[_top_idx][top_idx].get_ctr() == 3 || _banks[_top_idx][top_idx].get_ctr() == 4;
+        return u_zeroed && ctr_weak;
     }
 
     void _allocate_new(bool should_flip) {
@@ -343,9 +349,7 @@ class TAGEPredictor : public BranchPredictorBase {
                 }
         }
 
-        ~TAGEPredictor() {
-            print_stats();
-        }
+        ~TAGEPredictor() {}
 
         void update(u64 pc, BranchResult branch) override {
             bool provider_corr = _top_pred == branch;
@@ -428,7 +432,7 @@ class TAGEPredictor : public BranchPredictorBase {
 
             if (_top_idx > -1) {
                 auto top_idx = _idx_cache[_top_idx];
-                if (_banks[_top_idx][top_idx].get_u() == 0 && (_banks[_top_idx][top_idx].get_ctr() == 3 || _banks[_top_idx][top_idx].get_ctr() == 4)) {
+                if (_is_entry_new(top_idx)) {
                     _alt_on_new = true;
                     return _aon_tracker.predict() ? _alt_pred : _top_pred;
                 }
@@ -440,14 +444,15 @@ class TAGEPredictor : public BranchPredictorBase {
         std::string predictor_name() const override { return "TAGE"; }
 
         u64 get_size() const override {
-            u64 bits_per_table = 3 + 2 + (_tag_mask + 1) + 1; // 3-bt ctr, 2-bit u, _tag_width bit tag, allocated bit
+            u64 bits_per_table = 3 + 2 + _tag_width + 1; // 3-bt ctr, 2-bit u, _tag_width bit tag, allocated bit
             u64 bits_in_base = 2 * _table_size;
             u64 csrs = NC * (_idx_width + _tag_width);
-            return bits_per_table * NC + bits_in_base + H + csrs;
+            return bits_per_table * _table_size * NC + bits_in_base + H + csrs;
         }
 
         void print_stats() const {
             #ifdef TAGE_STATS
+            std::cout<< "======STATS for BASE TAGE=====" << std::endl;
             auto pct = [](u64 num, u64 den) { return den ? 100.0 * num / den : 0.0; };
             std::cout << "==== TAGE_STATS ====\n";
             std::cout << "total updates: " << _stat_total << "\n";

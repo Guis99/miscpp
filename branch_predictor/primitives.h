@@ -89,6 +89,8 @@ class HistoryBuffer {
         }
 
         bool get_bit_at(size_t idx) {
+            // std::cout << "idx: " << idx ", hist_len: " << hist_len << std::endl;
+            // std::cout << hist_len << std::endl;
             assert(idx < hist_len);
             return history[idx];
         }
@@ -170,20 +172,20 @@ class TagEntry {
             _u.set_val(0);
         }
 
-        bool match_tag(u16 tag) {
+        bool match_tag(u16 tag) const {
             return _allocated && tag == _tag;
         }
 
-        bool is_allocated() {
+        bool is_allocated() const {
             return _allocated;
         }
 
         void update_ctr(BranchResult result) { _ctr.update(result); }
         void update_u(BranchResult result) { _u.update(result); }
 
-        bool predict() { return _ctr.predict(); }
-        u8 get_u() { return _u.get_val(); }
-        u8 get_ctr() { return _ctr.get_val(); }
+        bool predict() const { return _ctr.predict(); }
+        u8 get_u() const { return _u.get_val(); }
+        u8 get_ctr() const { return _ctr.get_val(); }
 
         void set_tag(u16 tag) { _tag = tag; }
         void set_ctr(u8 val) { _ctr.set_val(val); }
