@@ -198,38 +198,42 @@ void run_trace_8_8_bimodal() {
     trace_8_8(&predictor);
 }
 
+// gshare
+
+#define GH 8
+
 void run_trace_corr_gshare() {
-    GSharePredictor predictor(TW, 2);
+    GSharePredictor predictor(TW, GH);
     trace_corr(&predictor);
 }
 
 void run_trace_anti_corr_gshare() {
-    GSharePredictor predictor(TW, 2);
+    GSharePredictor predictor(TW, GH);
     trace_anti_corr(&predictor);
 }
 
 void run_trace_xor_gshare() {
-    GSharePredictor predictor(TW, 8);
+    GSharePredictor predictor(TW, GH);
     trace_xor(&predictor);
 }
 
 void run_trace_1_0_gshare() {
-    GSharePredictor predictor(TW, 3);
+    GSharePredictor predictor(TW, GH);
     trace_1_0(&predictor);
 }
 
 void run_trace_taken_then_not_taken_gshare() {
-    GSharePredictor predictor(TW, 3);
+    GSharePredictor predictor(TW, GH);
     trace_taken_then_not_taken(&predictor);
 }
 
 void run_trace_6_2_gshare() {
-    GSharePredictor predictor(TW, 3);
+    GSharePredictor predictor(TW, GH);
     trace_6_2(&predictor);
 }
 
 void run_trace_8_8_gshare() {
-    GSharePredictor predictor(TW, 3);
+    GSharePredictor predictor(TW, GH);
     trace_8_8(&predictor);
 }
 
@@ -362,8 +366,12 @@ void run_trace_imitate_perc() {
 #define R 1.6
 #define H_SIZE 1024
 
+constexpr int TP_H = 1024, TP_NC = 12;
+constexpr int TP_IDX = 10, TP_TAG = 11, TP_L1 = 4;
+constexpr float TP_RATIO = 1.6f;
+
 void run_trace_1_0_tage() {
-    TAGEPredictor<H_SIZE, NUM_COMP> predictor(IW, TW, NUM_COMP, L1, R);
+    TAGEPredictor<TP_H, TP_NC> predictor(TP_IDX, TP_TAG, TP_NC, TP_L1, TP_RATIO);
     trace_1_0(&predictor);
 }
 
@@ -441,7 +449,7 @@ int main() {
     run_trace_imitate_perc();
 
     std::cout << "======TAGE sanity checks======" << std::endl;
-    
+
     run_trace_1_0_tage();
     run_trace_taken_then_not_taken_tage();
     run_trace_3_3_tage();

@@ -334,11 +334,12 @@ class TAGEImproved : public BranchPredictorBase {
 
         u64 get_size() const override {
             u64 base_tables = _table_size * 2; // bimodal table with 2-bit counter
-            u64 upper_b = N_U * (1ull << _tage_idx_width) * (3 + 2 + 1 + _short_tag_width); // 3 bit ctr, 2 u-bits, 1 allocated bit, tag bits
-            u64 lower_b = N_L * (1ull << _tage_idx_width) * (3 + 2 + 1 + _long_tag_width);
-            u64 csrs = N_L * (2*_short_tag_width - 1 + _tage_idx_width) + N_U * (2*_long_tag_width - 1 + _tage_idx_width); 
+            u64 upper_b = N_U * (1ull << _tage_idx_width) * (3 + 2 + 1 + _long_tag_width); // 3 bit ctr, 2 u-bits, 1 allocated bit, tag bits
+            u64 lower_b = N_L * (1ull << _tage_idx_width) * (3 + 2 + 1 + _short_tag_width);
+            u64 upper_csrs = N_L * (2*_short_tag_width - 1 + _tage_idx_width);
+            u64 lower_csrs = N_U * (2*_long_tag_width - 1 + _tage_idx_width); 
             u64 history = 3000;
-            return base_tables + upper_b + lower_b;
+            return base_tables + upper_b + lower_b + upper_csrs + lower_csrs + history;
         }
 
         void print_stats() const {
