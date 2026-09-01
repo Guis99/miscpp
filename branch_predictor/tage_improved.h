@@ -16,6 +16,7 @@ template <int N_L, int N_U, int NC>
 // NC: number of history lengths
 class TAGEImproved : public BranchPredictorBase {
     constexpr static int nLookups = 2 * NC;
+    constexpr static size_t U = 1;
 
     size_t _base_idx_width;
     size_t _tage_idx_width;
@@ -34,7 +35,7 @@ class TAGEImproved : public BranchPredictorBase {
 
     HistoryBuffer<3000> _history_buffer;
     std::vector<SatCounter<2>> _base_table;
-    std::array<std::vector<TagEntry>, 2> _banks = {};
+    std::array<std::vector<TagEntry<1>>, 2> _banks = {};
 
     // maps banks 1..firstLongTag-1 to 1, firstLongTag..nLookups to firstLongTag
     std::array<int, nLookups+1> _bank_map = {}; 
@@ -95,7 +96,7 @@ class TAGEImproved : public BranchPredictorBase {
         }
     }
 
-    void _allocate_new(bool should_flip) {
+    void _allocate_new(bool should_flip, [[maybe_unused]] uint64_t pc) {
         bool allocated = false;
         #ifdef TAGE_STATS
                 _stat_alloc_attempt++;
@@ -103,10 +104,13 @@ class TAGEImproved : public BranchPredictorBase {
             for (u8 i = _top_idx+1; i <= nLookups; i++) {
                 auto b_idx = _idx_cache[i];
                 auto b_useful = _banks[_get_mapped_idx(i)][b_idx].get_u();
-                if (b_useful == 0 && !allocated) {
+                // if (b_useful == 0 && !allocated) {
+                if (_is_entry_new(i, b_idx) && !allocated) {
                     auto b_tag = _tag_cache[i];
                     _banks[_get_mapped_idx(i)][b_idx].allocate(b_tag, should_flip);
                     allocated = true;
+                    COLLECT_ALLOC(true);
+                    COLLECT_FP_STORE(_get_mapped_idx(i), b_idx, _collect_fp(pc, _history_lengths[i]));
         #ifdef TAGE_STATS
                         _stat_alloc_success++;
         #endif
@@ -115,6 +119,7 @@ class TAGEImproved : public BranchPredictorBase {
             }
 
         if (!allocated) {
+            COLLECT_ALLOC(false);
             for (u8 i = _top_idx+1; i <= nLookups; i++) {
                 auto b_idx = _idx_cache[i];
                 _banks[_get_mapped_idx(i)][b_idx].update_u(BranchResult::NOT_TAKEN);
@@ -125,6 +130,25 @@ class TAGEImproved : public BranchPredictorBase {
     bool _is_entry_new(u16 top_idx) const {
         bool u_zeroed = _banks[_get_mapped_idx(_top_idx)][top_idx].get_u() == 0;
         bool ctr_weak = _banks[_get_mapped_idx(_top_idx)][top_idx].get_ctr() == 3 || _banks[_get_mapped_idx(_top_idx)][top_idx].get_ctr() == 4;
+        return u_zeroed && ctr_weak;
+    }
+
+#ifdef COLLECT_DATA
+    // Wide, tag-independent fingerprint of (pc, real history[0:hl]) for the
+    // COLLECT_DATA tag-false-match instrument. Not part of prediction.
+    uint64_t _collect_fp(uint64_t pc, int hl) const {
+        uint64_t h = collect_mix(pc * 2 + 1);
+        for (int s = 0; s < hl; s += 63) {
+            int n = (hl - s < 63) ? (hl - s) : 63;
+            h ^= collect_mix(_history_buffer.get_bit_range((u16)s, (size_t)n) ^ (uint64_t)(s + 1));
+        }
+        return collect_mix(h);
+    }
+#endif
+
+    bool _is_entry_new(u8 bank_idx, u16 top_idx) const {
+        bool u_zeroed = _banks[_get_mapped_idx(bank_idx)][top_idx].get_u() == 0;
+        bool ctr_weak = _banks[_get_mapped_idx(bank_idx)][top_idx].get_ctr() == 3 || _banks[_get_mapped_idx(_top_idx)][top_idx].get_ctr() == 4;
         return u_zeroed && ctr_weak;
     }
 
@@ -182,11 +206,13 @@ class TAGEImproved : public BranchPredictorBase {
                     u16 hl = _history_lengths[i];
                     _idx_hashes[i] = csr(_tage_idx_mask, _tage_idx_width, (hl - 1) % _tage_idx_width);
                     _tag_hashes[i] = csr(_tag_masks[i], _tagWidths[i], (hl - 1) % _tagWidths[i]);
-                    _tag_hashes_2[i] = csr(_tag_masks[i], _tagWidths[i] - 1, (hl - 1) % _tagWidths[i]);
+                    // _tag_hashes_2[i] = csr(_tag_masks[i], _tagWidths[i] - 1, (hl - 1) % _tagWidths[i]);
+                    _tag_hashes_2[i] = csr( (1ull << (_tagWidths[i] - 1)) - 1, _tagWidths[i] - 1, (hl - 1) % (_tagWidths[i] - 1));
                 }
 
                 _banks[0].resize(N_L * (1 << _tage_idx_width));
                 _banks[1].resize(N_U * (1 << _tage_idx_width));
+                COLLECT_FP_REGISTER(std::vector<size_t>{_banks[0].size(), _banks[1].size()});
         }
 
         ~TAGEImproved() {}
@@ -246,6 +272,9 @@ class TAGEImproved : public BranchPredictorBase {
 
                 bool pred = _banks[_get_mapped_idx(i)][idx].predict();
                 bool tag_match = _banks[_get_mapped_idx(i)][idx].match_tag(tag);
+                COLLECT_IDX_CHECK(_get_mapped_idx(i), idx,
+                                  _noSkip[i] && _banks[_get_mapped_idx(i)][idx].is_allocated(),
+                                  _collect_fp(pc, _history_lengths[i]));
                 if (tag_match) {
                 // if (tag_match && (_history_lengths[i] != _history_lengths[_top_idx])) {
                     _alt_pred = _top_pred;
@@ -253,6 +282,10 @@ class TAGEImproved : public BranchPredictorBase {
                     _top_idx = i;
                 }
             }
+
+            if (_top_idx > 0)
+                COLLECT_FP_CHECK(_get_mapped_idx(_top_idx), _idx_cache[_top_idx],
+                                 _collect_fp(pc, _history_lengths[_top_idx]));
 
             if (_top_idx > 0) {
                 auto top_idx = _idx_cache[_top_idx];
@@ -293,7 +326,7 @@ class TAGEImproved : public BranchPredictorBase {
             // }
 
              if (!provider_corr) {
-                _allocate_new(branch);
+                _allocate_new(branch, pc);
             }
 
             if (_alt_on_new) {
@@ -312,6 +345,10 @@ class TAGEImproved : public BranchPredictorBase {
             } else {
                 _base_table[_get_idx(pc)].update(branch);
             }
+
+            COLLECT_PROVIDER(_top_idx > 0 ? _history_lengths[_top_idx] : 0,
+                             (_alt_on_new ? _alt_pred : _top_pred) != branch);
+            COLLECT_SNAPSHOT(_banks);
 
             for (int i = 1; i <= nLookups; i++) {
                 u16 hist_len = _history_lengths[i];
@@ -334,8 +371,8 @@ class TAGEImproved : public BranchPredictorBase {
 
         u64 get_size() const override {
             u64 base_tables = _table_size * 2; // bimodal table with 2-bit counter
-            u64 upper_b = N_U * (1ull << _tage_idx_width) * (3 + 2 + 1 + _long_tag_width); // 3 bit ctr, 2 u-bits, 1 allocated bit, tag bits
-            u64 lower_b = N_L * (1ull << _tage_idx_width) * (3 + 2 + 1 + _short_tag_width);
+            u64 upper_b = N_U * (1ull << _tage_idx_width) * (3 + U + 1 + _long_tag_width); // 3 bit ctr, 2 u-bits, 1 allocated bit, tag bits
+            u64 lower_b = N_L * (1ull << _tage_idx_width) * (3 + U + 1 + _short_tag_width);
             u64 upper_csrs = N_L * (2*_short_tag_width - 1 + _tage_idx_width);
             u64 lower_csrs = N_U * (2*_long_tag_width - 1 + _tage_idx_width); 
             u64 history = 3000;

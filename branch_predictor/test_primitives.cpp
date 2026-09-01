@@ -53,6 +53,27 @@ bool update_and_verify(SatCounter<N>& counter, BranchResult branch, u8 expected_
     return true;
 }
 
+bool test_counter_1() {
+    std::cout << "=========Testing 1-bit counter========" << std::endl;
+    SatCounter<1> counter = SatCounter<1>();
+
+    bool passed = true;
+
+    passed &= update_and_verify(counter, BranchResult::TAKEN, 1, true);
+    passed &= update_and_verify(counter, BranchResult::TAKEN, 1, true);
+    passed &= update_and_verify(counter, BranchResult::TAKEN, 1, true);
+    passed &= update_and_verify(counter, BranchResult::TAKEN, 1, true);
+    passed &= update_and_verify(counter, BranchResult::NOT_TAKEN, 0, false);
+    passed &= update_and_verify(counter, BranchResult::NOT_TAKEN, 0, false);
+    passed &= update_and_verify(counter, BranchResult::NOT_TAKEN, 0, false);
+    passed &= update_and_verify(counter, BranchResult::NOT_TAKEN, 0, false);
+
+    std::cout << "==========" << statuses[!passed] << "========" << std::endl;
+    std::cout << "=========END Testing 1-bit counter========" << std::endl << std::endl;
+
+    return passed;
+}
+
 bool test_counter_2() {
     std::cout << "=========Testing 2-bit counter========" << std::endl;
     SatCounter<2> counter = SatCounter<2>();
@@ -319,11 +340,9 @@ bool test_folded_tracker_1() {
     std::vector<csr> trackers_idx;
     std::vector<csr> trackers_tag;
     for (auto i : h) {
-        trackers_idx.emplace_back(idx_mask, idx_width - 1, i % idx_width - 1);
-        trackers_tag.emplace_back(tag_mask, tag_width - 1, i % tag_width - 1);
+        trackers_idx.emplace_back(idx_mask, idx_width, (i-1) % idx_width);
+        trackers_tag.emplace_back(tag_mask, tag_width, (i-1) % tag_width);
     }
-
-    std::cout << "FIND ME" << 4%5-1 << std::endl;
 
     for (int i = 0; i < h.size(); i++) {        
         passed &= compare(0, trackers_idx[i].hash);
@@ -596,6 +615,7 @@ bool test_perceptron_3() {
 }
 
 int main() {
+    test_counter_1();
     test_counter_2();
     test_counter_3();
     test_counter_4();

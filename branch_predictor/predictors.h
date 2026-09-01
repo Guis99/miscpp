@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "primitives.h"
+#include "collect.h"
 
 // #define TAGE_STATS
 // #undef TAGE_STATS
@@ -42,7 +43,10 @@ class BimodalPredictor : public BranchPredictorBase {
         }
 
         void update(u64 pc, BranchResult branch) override {
-            pred_table[get_idx(pc)].update(branch);
+            size_t idx = get_idx(pc);
+            COLLECT_ALIAS(pred_table[idx], pc);
+            pred_table[idx].update(branch);
+            COLLECT_TICK();
         }
 
         bool predict(u64 pc) override {
@@ -78,8 +82,11 @@ class GSharePredictor : public BranchPredictorBase {
         }
 
         void update(u64 pc, BranchResult branch) override {
-            pred_table[get_idx(pc)].update(branch);
+            u64 idx = get_idx(pc);
+            COLLECT_ALIAS(pred_table[idx], pc);
+            pred_table[idx].update(branch);
             history_buffer.update(branch);
+            COLLECT_TICK();
         }
 
         bool predict(u64 pc) override {
@@ -133,7 +140,9 @@ class TwoLevelPredictor : public BranchPredictorBase {
             size_t history_idx = get_history_idx(pc_idx);
 
             branch_history_table[pc_idx].update(branch); // update branch history
+            COLLECT_ALIAS(pred_table[pc_idx][history_idx], pc);
             pred_table[pc_idx][history_idx].update(branch); // update counter
+            COLLECT_TICK();
         }
 
         bool predict(u64 pc) override {
@@ -242,7 +251,7 @@ class PerceptronPredictor : public BranchPredictorBase {
         u64 get_size() const override {
             u64 hb = history_length;
 
-            u64 perceptrons = table_size * 8 * history_length; // num_entries * size of int8 * number of weights
+            u64 perceptrons = table_size * 8 * (history_length + 1); // num_entries * size of int8 *(number of weights + bias)
             return hb + perceptrons;
         }
 };
@@ -254,12 +263,14 @@ class TAGEPredictor : public BranchPredictorBase {
     size_t _table_size;
     size_t _pc_mask;
     size_t _tag_mask;
+    constexpr static size_t U = 2;
 
     HistoryBuffer<H> _history_buffer;
     std::vector<SatCounter<2>> _pred_table;
-    std::vector<std::vector<TagEntry>> _banks;
+    std::vector<std::vector<TagEntry<U>>> _banks;
 
     std::array<csr, 2*NC> _hashes;
+    std::array<csr, NC> _hashes_2; // shorter folded history to decorrelate tags and idx in tag_width == idx_width case
     std::array<u16, NC> _history_lengths;
     std::array<u16, 2*NC> _idx_cache;
 
@@ -286,13 +297,24 @@ class TAGEPredictor : public BranchPredictorBase {
         return pc & _pc_mask;
     }
 
+#ifdef COLLECT_DATA
+    uint64_t _collect_fp(uint64_t pc, int hl) const {
+        uint64_t h = collect_mix(pc * 2 + 1);
+        for (int s = 0; s < hl; s += 63) {
+            int n = (hl - s < 63) ? (hl - s) : 63;
+            h ^= collect_mix(_history_buffer.get_bit_range((u16)s, (size_t)n) ^ (uint64_t)(s + 1));
+        }
+        return collect_mix(h);
+    }
+#endif
+
     bool _is_entry_new(u16 top_idx) const {
         bool u_zeroed = _banks[_top_idx][top_idx].get_u() == 0;
         bool ctr_weak = _banks[_top_idx][top_idx].get_ctr() == 3 || _banks[_top_idx][top_idx].get_ctr() == 4;
         return u_zeroed && ctr_weak;
     }
 
-    void _allocate_new(bool should_flip) {
+    void _allocate_new(bool should_flip, [[maybe_unused]] uint64_t pc) {
         bool allocated = false;
 #ifdef TAGE_STATS
         _stat_alloc_attempt++;
@@ -304,15 +326,18 @@ class TAGEPredictor : public BranchPredictorBase {
                 auto b_tag = _idx_cache[i+NC];
                 _banks[i][b_idx].allocate(b_tag, should_flip);
                 allocated = true;
+                COLLECT_ALLOC(true);
+                COLLECT_FP_STORE(i, b_idx, _collect_fp(pc, _history_lengths[i]));
 #ifdef TAGE_STATS
                 _stat_alloc_success++;
 #endif
-                    
+
                 break;
             }
         }
 
         if (!allocated) {
+            COLLECT_ALLOC(false);
             for (u8 i = _top_idx+1; i < NC; i++) {
                 auto b_idx = _idx_cache[i];
                 _banks[i][b_idx].update_u(BranchResult::NOT_TAKEN);
@@ -338,7 +363,7 @@ class TAGEPredictor : public BranchPredictorBase {
                 _pc_mask(_table_size - 1), _tag_mask((1ull << tag_width) - 1),
                 _history_buffer(),
                 _pred_table(_table_size, SatCounter<2>()), 
-                _banks(NC, std::vector<TagEntry>(_table_size, TagEntry()))
+                _banks(NC, std::vector<TagEntry<U>>(_table_size, TagEntry<U>()))
             {
                 float factor = 1.0;
                 for (int i = 0; i < NC; i++) {
@@ -352,8 +377,12 @@ class TAGEPredictor : public BranchPredictorBase {
                     _history_lengths[i] = hl;    
                     _hashes[2*i] = csr(_pc_mask, _idx_width, (hl - 1) % idx_width);
                     _hashes[2*i+1] = csr(_tag_mask, _tag_width, (hl - 1) % tag_width);
-                    factor *= ratio;    
+                    // _hashes_2[i] = csr(_tag_mask, _tag_width - 1, (hl - 1) % tag_width);
+                    _hashes_2[i] = csr( (1ull << (_tag_width - 1)) - 1, _tag_width - 1, (hl - 1) % (tag_width - 1));
+
+                    factor *= ratio;
                 }
+                COLLECT_FP_REGISTER(std::vector<size_t>(NC, _table_size));
         }
 
         ~TAGEPredictor() {}
@@ -377,7 +406,7 @@ class TAGEPredictor : public BranchPredictorBase {
 #endif
             
             if (!provider_corr && !_alt_on_new) {
-                _allocate_new(branch);
+                _allocate_new(branch, pc);
             }
 
             if (_alt_on_new) {
@@ -397,12 +426,17 @@ class TAGEPredictor : public BranchPredictorBase {
                 _pred_table[_get_idx(pc)].update(branch);
             }
 
+            COLLECT_PROVIDER(_top_idx > -1 ? _history_lengths[_top_idx] : 0,
+                             (_alt_on_new ? _alt_pred : _top_pred) != branch);
+            COLLECT_SNAPSHOT(_banks);
+
             for (int i = 0; i < NC; i++) {
                 u16 hist_len = _history_lengths[i];
                 bool oldest = _history_buffer.get_bit_at(hist_len-1);
 
                 _hashes[2*i].shift_and_fold(branch, oldest);
                 _hashes[2*i+1].shift_and_fold(branch, oldest);
+                _hashes_2[i].shift_and_fold(branch, oldest);
             }
 
             _history_buffer.update(branch);
@@ -421,21 +455,27 @@ class TAGEPredictor : public BranchPredictorBase {
             for (int i = 0; i < NC; i++) {
                 u32 idx_hash = _hashes[2*i].hash;
                 u32 tag_hash = _hashes[2*i+1].hash;
+                u32 tag_hash_2 = _hashes_2[i].hash;
 
                 u16 idx = idx_hash ^ (pc & _pc_mask);
-                u16 tag = tag_hash ^ (pc & _tag_mask);
+                u16 tag = tag_hash ^ (tag_hash_2 << 1) ^ (pc & _tag_mask);
 
                 _idx_cache[i] = idx;
                 _idx_cache[i+NC] = tag;
 
                 bool pred = _banks[i][idx].predict();
                 bool tag_match = _banks[i][idx].match_tag(tag);
+                COLLECT_IDX_CHECK(i, idx, _banks[i][idx].is_allocated(),
+                                  _collect_fp(pc, _history_lengths[i]));
                 if (tag_match) {
                     _alt_pred = _top_pred;
                     _top_pred = pred;
                     _top_idx = i;
                 }
             }
+
+            if (_top_idx > -1)
+                COLLECT_FP_CHECK(_top_idx, _idx_cache[_top_idx], _collect_fp(pc, _history_lengths[_top_idx]));
 
             if (_top_idx > -1) {
                 auto top_idx = _idx_cache[_top_idx];
@@ -453,7 +493,7 @@ class TAGEPredictor : public BranchPredictorBase {
         u64 get_size() const override {
             u64 bits_per_table = 3 + 2 + _tag_width + 1; // 3-bt ctr, 2-bit u, _tag_width bit tag, allocated bit
             u64 bits_in_base = 2 * _table_size;
-            u64 csrs = NC * (_idx_width + _tag_width);
+            u64 csrs = NC * (_idx_width + _tag_width + _tag_width - 1);
             return bits_per_table * _table_size * NC + bits_in_base + H + csrs;
         }
 

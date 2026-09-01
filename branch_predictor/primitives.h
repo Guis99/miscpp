@@ -23,6 +23,13 @@ class SatCounter {
     static constexpr u8 MAX = (1u << n_bits) - 1;
     static constexpr u8 TAKEN_THRESHOLD = 1u << (n_bits - 1);
     u8 val;
+#ifdef COLLECT_DATA
+    // Collection-only shadow: the full (un-hashed, un-masked) PC that last
+    // trained this counter. Compared against the incoming PC on access to
+    // detect destructive interference / aliasing. Gated out of production, so
+    // sizeof(SatCounter) is unchanged in a normal build. ~0ull = never written.
+    uint64_t _owner_pc = ~0ull;
+#endif
     public:
         SatCounter(u8 init = TAKEN_THRESHOLD - 1) : val(init) {}
         void update(BranchResult result) {
@@ -39,6 +46,11 @@ class SatCounter {
         }
 
         void set_val(u8 val) { this->val = val; }
+
+#ifdef COLLECT_DATA
+        uint64_t collect_owner() const { return _owner_pc; }
+        void collect_set_owner(uint64_t pc) { _owner_pc = pc; }
+#endif
 };
 
 // static inline 
@@ -108,15 +120,21 @@ class Perceptron {
     int64_t threshold;
     int64_t last_sum = 0;
     bool last_pred = false;
-    std::array<int8_t, 64> weights;
+    int8_t bias;
+    std::array<decltype(bias), 64> weights;
 
     int8_t bool2sgn(bool val) {
         return 2 * val - 1;
     }
 
+    bool in_bounds(decltype(bias) num) {
+        return num < std::numeric_limits<decltype(bias)>::max() && num > std::numeric_limits<decltype(bias)>::min();
+    }
+
     public:
         Perceptron(size_t history_length) :
                 threshold(2*history_length+14),  // per Jimenez paper
+                bias(0),
                 weights({0}) 
             {
                 assert(history_length <= 64);
@@ -124,9 +142,14 @@ class Perceptron {
 
         void update(BranchResult result, size_t history, size_t history_length) {
             if (last_pred != result || std::abs(last_sum) <= threshold) {
-                for (size_t i = 0; i < history_length; i++) {
+                int8_t updated_val = bias + bool2sgn(result); // update bias
+                if (std::abs(updated_val) <= threshold && in_bounds(updated_val)) {
+                    bias = updated_val;
+                }
+
+                for (size_t i = 0; i < history_length; i++) { // update weights
                     int8_t updated_val = weights[history_length - i - 1] + bool2sgn(result == (history & 0x01));
-                    if (std::abs(updated_val) <= threshold && updated_val < INT8_MAX && updated_val > INT8_MIN) {
+                    if (std::abs(updated_val) <= threshold && in_bounds(updated_val)) {
                         weights[history_length - i - 1] = updated_val;
                     }
                     history >>= 1;
@@ -135,7 +158,7 @@ class Perceptron {
         }
 
         bool predict(size_t history, size_t history_length) {
-            int64_t sum = 0;
+            int64_t sum = bias;
 
             for (size_t i = 0; i < history_length; i++) {
                 sum += weights[history_length - i - 1] * bool2sgn(history & 0x01);
@@ -149,9 +172,10 @@ class Perceptron {
 };
 
 // TAGE-specific
+template<unsigned U>
 class TagEntry {
     SatCounter<3> _ctr;
-    SatCounter<2> _u;
+    SatCounter<U> _u;
     u16 _tag;
     bool _allocated;
 
