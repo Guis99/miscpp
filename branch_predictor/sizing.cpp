@@ -52,7 +52,7 @@ int main() {
         no_skip.fill(true);
         TAGEImproved<TI_N_L, TI_N_U, TI_NC> p(
             TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
-            TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, no_skip);
+            TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, no_skip, true);
         report("TAGEImproved<NL=" + std::to_string(TI_N_L) + ",NU=" + std::to_string(TI_N_U) + ">", p.get_size());
     }
     return 0;

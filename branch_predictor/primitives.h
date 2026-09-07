@@ -20,9 +20,9 @@ enum BranchResult : bool {
 // k-bit saturation counter
 template <unsigned n_bits>
 class SatCounter {
-    static constexpr u8 MAX = (1u << n_bits) - 1;
-    static constexpr u8 TAKEN_THRESHOLD = 1u << (n_bits - 1);
-    u8 val;
+    static constexpr u16 MAX = (1u << n_bits) - 1;
+    static constexpr u16 TAKEN_THRESHOLD = 1u << (n_bits - 1);
+    u16 val;
 #ifdef COLLECT_DATA
     // Collection-only shadow: the full (un-hashed, un-masked) PC that last
     // trained this counter. Compared against the incoming PC on access to
@@ -31,7 +31,7 @@ class SatCounter {
     uint64_t _owner_pc = ~0ull;
 #endif
     public:
-        SatCounter(u8 init = TAKEN_THRESHOLD - 1) : val(init) {}
+        SatCounter(u16 init = TAKEN_THRESHOLD - 1) : val(init) {}
         void update(BranchResult result) {
             if (result && val < MAX) { val++; } // branch taken
             else if (!result && val > 0) { val--; } // branch not taken
@@ -41,11 +41,15 @@ class SatCounter {
             return val >= TAKEN_THRESHOLD;
         }
 
-        u8 get_val() const {
+        u16 get_val() const {
             return val;
         }
 
-        void set_val(u8 val) { this->val = val; }
+        void set_val(u16 val) { this->val = val; }
+
+        static u16 midpoint() {
+            return TAKEN_THRESHOLD;
+        }
 
 #ifdef COLLECT_DATA
         uint64_t collect_owner() const { return _owner_pc; }

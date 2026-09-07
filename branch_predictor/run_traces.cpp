@@ -1,13 +1,19 @@
+// #include "cbp2025/my_cond_branch_predictor.h"
 #include "predictors.h"
+#include "tage_improved.h"
 #include "traces.h"
 
 #include <cstddef>
 #include <vector>
 
-#define FACTOR 6
+
 #define IW 9
 #define TW 7
-// magic number: 1024 << 15 ~= 3e7 - size of average CBP benchmark 
+
+// turn test suites on or off
+#define RUN_
+#define RUN_SC
+
 
 // ---- Helpers ----
 void print_score(BranchPredictorBase* predictor, std::string title, size_t score, size_t seq_len) {
@@ -15,7 +21,8 @@ void print_score(BranchPredictorBase* predictor, std::string title, size_t score
     std::cout << "[" << *predictor << "] " << title << ": Predicted " << score << " out of " << seq_len << " correctly (" << perc << "%)" << std::endl;
 }
 
-size_t num_reps = 1024 << FACTOR;
+#define FACTOR 6
+size_t num_reps = 1024 << FACTOR; // magic number: 1024 << 15 ~= 3e7 - size of average CBP benchmark 
 
 // ---- Generic trace functions ----
 std::vector<BranchInstr> v_trace_1_0 = repeating_pattern(1, 1, num_reps);
@@ -405,14 +412,82 @@ void run_trace_imitate_tage() {
     trace_imitate(&predictor);
 }
 
+// SC runners
+
+constexpr int TI_N_L = 9, TI_N_U = 17, TI_NC = 15;
+constexpr int TI_BASE_IW = 13, TI_TAGE_IW = 10, TI_SHORT_TW = 9, TI_LONG_TW = 12;
+constexpr int TI_FIRST_LONG = 9, TI_MIN_HIST = 4, TI_MAX_HIST = 2000;
+constexpr int TI_NLOOKUPS = 2 * TI_NC;
+constexpr bool use_sc = true;
+
+static std::array<bool, TI_NLOOKUPS + 1> make_no_skip() {
+    std::array<bool, TI_NLOOKUPS + 1> no_skip;
+    no_skip.fill(true);
+    return no_skip;
+}
+
+void run_trace_1_0_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_1_0(&predictor);
+}
+
+void run_trace_taken_then_not_taken_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_taken_then_not_taken(&predictor);
+}
+
+void run_trace_3_3_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_3_3(&predictor);
+}
+
+void run_trace_6_2_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_6_2(&predictor);
+}
+
+void run_trace_8_8_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_8_8(&predictor);
+}
+
+void run_trace_xor_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_xor(&predictor);
+    predictor.print_stats();
+}
+
+void run_trace_imitate_sc() {
+    TAGEImproved<TI_N_L, TI_N_U, TI_NC> predictor(
+                                        TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
+                                        TI_FIRST_LONG, TI_MIN_HIST, TI_MAX_HIST, make_no_skip(), use_sc);
+    trace_imitate(&predictor);
+    predictor.print_stats();
+}
+
 int main() {
+    #ifdef RUN_BIMODAL
     std::cout << "======Bimodal sanity checks======" << std::endl;
     run_trace_1_0_bimodal();
     run_trace_taken_then_not_taken_bimodal();
     run_trace_3_3_bimodal();
     run_trace_6_2_bimodal();
     run_trace_8_8_bimodal();
+    #endif
 
+    #ifdef RUN_GSHARE
     std::cout << "======GShare sanity checks======" << std::endl;
     run_trace_1_0_gshare();
     run_trace_taken_then_not_taken_gshare();
@@ -421,7 +496,9 @@ int main() {
     run_trace_xor_gshare();
     run_trace_corr_gshare();
     run_trace_anti_corr_gshare();
+    #endif
 
+    #ifdef RUN_2LVL
     std::cout << "======Two-level sanity checks======" << std::endl;
     run_trace_1_0_twolvl();
     run_trace_taken_then_not_taken_twolvl();
@@ -429,7 +506,9 @@ int main() {
     run_trace_6_2_twolvl();
     run_trace_8_8_twolvl();
     run_trace_xor_twolvl();
+    #endif
 
+    #ifdef RUN_TOURN
     std::cout << "======Tournament sanity checks======" << std::endl;
     run_trace_1_0_tourn();
     run_trace_taken_then_not_taken_tourn();
@@ -437,8 +516,9 @@ int main() {
     run_trace_6_2_tourn();
     run_trace_8_8_tourn();
     run_trace_xor_tourn();
-    run_trace_imitate_tourn();
+    #endif
 
+    #ifdef RUN_PERCEPTRON
     std::cout << "======Perceptron sanity checks======" << std::endl;
     run_trace_1_0_perc();
     run_trace_taken_then_not_taken_perc();
@@ -447,7 +527,9 @@ int main() {
     run_trace_8_8_perc();
     run_trace_xor_perc();
     run_trace_imitate_perc();
+    #endif
 
+    #ifdef RUN_TAGE
     std::cout << "======TAGE sanity checks======" << std::endl;
 
     run_trace_1_0_tage();
@@ -457,4 +539,15 @@ int main() {
     run_trace_8_8_tage();
     run_trace_xor_tage();
     run_trace_imitate_tage();
+    #endif
+
+    #ifdef RUN_SC
+    // run_trace_1_0_sc();
+    // run_trace_taken_then_not_taken_sc();
+    // run_trace_3_3_sc();
+    // run_trace_6_2_sc();
+    // run_trace_8_8_sc();
+    run_trace_xor_sc();
+    run_trace_imitate_sc();
+    #endif
 }
