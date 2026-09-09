@@ -7,8 +7,8 @@
 #include <cmath>
 #include <vector>
 #include <memory>
-// #undef TAGE_STATS
-#define TAGE_STATS
+#undef TAGE_STATS
+// #define TAGE_STATS
 
 #ifdef TAGE_STATS
     #ifndef SC_STATS
@@ -17,8 +17,16 @@
 #endif
 
 #ifndef SC_STATS
-#define SC_STATS
+// #define SC_STATS
 #endif
+
+#ifdef USE_PHIST_
+    inline constexpr bool USE_PHIST = true;
+#else
+    inline constexpr bool USE_PHIST = false;
+#endif
+
+#define PHISTWIDTH 27
 
 // ---------------------------------------------------------------------------
 // TAGEImproved: iteration target for the advanced techniques (interleaved
@@ -30,19 +38,25 @@ struct conf {
     bool low_conf, high_conf;
 };
 
-// static constexpr u16 bim2tage[4] = {0,3,4,7};
-static constexpr u16 bim2tage[4] = {0,1,2,3};
+static constexpr u16 bim2tage[4] = {0,3,4,7};
 
 class StatCorrector : BranchPredictorBase {
-    static constexpr u8 CS = 6;
+    static constexpr u8 CS = 6; // GEHL counter size
+
+    static constexpr u8 NUM_BIAS = 2;
     static constexpr u8 NUM_GLOBAL_H = 3;
+    static constexpr u8 NUM_PATH_H = 3;
+
     static constexpr u8 GLOB_H_LEN[NUM_GLOBAL_H] = {10, 40, 64};
+    static constexpr u8 PATH_H_LEN[NUM_PATH_H] = {24, 16, 9};
+
     static constexpr u64 tage_weight = 8;
 
-    static constexpr u64 num_tables = 2 + NUM_GLOBAL_H;
+    static constexpr u64 num_tables = NUM_BIAS + NUM_GLOBAL_H + USE_PHIST*NUM_PATH_H;
 
     u64 _lg_bias_ctr_size; // log_2 bias counter table size
     u64 _lg_gh_ctr_size;
+    u64 _lg_ph_ctr_size; 
     u64 _lg_lh1_ctr_size;
     u64 _lg_lh2_ctr_size;
     u64 _lg_lh3_ctr_size;
@@ -51,12 +65,14 @@ class StatCorrector : BranchPredictorBase {
     u64 _global_hist_mask;
 
     HistoryBuffer<64> _global_history;
+    u64 _path_hist = 0;
     std::vector<std::vector<HistoryBuffer<32>>> _local_histories;
 
     std::vector<SatCounter<CS>> _bias;
     std::vector<SatCounter<CS>> _bias_sk;
 
     std::array<std::vector<SatCounter<CS>>, NUM_GLOBAL_H> _w_global;
+    std::array<std::vector<SatCounter<CS>>,NUM_PATH_H> _w_path_hist;
     std::vector<SatCounter<CS>> _w_local_1;
     std::vector<SatCounter<CS>> _w_local_2;
     std::vector<SatCounter<CS>> _w_local_3;
@@ -79,9 +95,6 @@ class StatCorrector : BranchPredictorBase {
     u64 _ltc_mask = (1ull << 6) - 1;
 
     SatCounter<7> _lc_chooser = {};
-    // u64 _get_idx(u64 pc, int64_t bhist, int logs, int nbr, int i) {
-
-    // }
 
     u64 _get_bias_idx(u64 pc) {
         return ( (
@@ -102,8 +115,8 @@ class StatCorrector : BranchPredictorBase {
     }
 
     u64 _get_bias(u64 pc) {
-        u64 bias_val = _bias[_get_bias_idx(pc)].get_val();
-        bias_val += _bias_sk[_get_bias_sk_idx(pc)].get_val();
+        u64 bias_val = _bias[_get_bias_idx(pc)].get_val()
+        + _bias_sk[_get_bias_sk_idx(pc)].get_val();
 
         return bias_val;
     }
@@ -114,17 +127,24 @@ class StatCorrector : BranchPredictorBase {
             u64 idx = _get_gh_idx(pc, i);
             global_h_pred += _w_global[i][idx].get_val();
         }
-        // u64 idx = 
-        //std::cout << "sc gh predict in1" << std::endl;
+
         return global_h_pred;
     }
 
-    int _get_prediction(u64 branch_pc, int64_t hist,
-                               std::vector<int> &length,
-                               std::vector<int8_t> *tab, int nbr, int logs,
-                               std::vector<SatCounter<CS>> &w) {
-        
-        return 0;
+    u64 _local_hist_idx(u64 pc, u64 bhist, int h_idx) {
+        return (((uint64_t) pc) ^ bhist ^ (bhist >> (8 - h_idx)) ^ (bhist >> (16 - 2 * h_idx)) ^ (bhist >> (24 - 3 * h_idx)) ^ (bhist >> (32 - 3 * h_idx)) ^ (bhist >> (40 - 4 * h_idx))) & ((1 << (9 - (h_idx >= (NUM_PATH_H - 2)))) - 1);
+    }
+
+    u64 _get_path_prediction(u64 pc) {
+        if constexpr (!USE_PHIST) { return 0; }
+        u64 path_h_prediction = 0;
+        for (int i=0; i<NUM_PATH_H; i++) {
+            u64 bhist = _path_hist & ((u64) ((1ULL << PATH_H_LEN[i]) - 1));
+            u64 idx = _local_hist_idx(pc, bhist, i);
+            path_h_prediction += _w_path_hist[i][idx].get_val();
+        }
+
+        return path_h_prediction;
     }
 
     u64 _get_threshold(u64 pc) {
@@ -140,8 +160,8 @@ class StatCorrector : BranchPredictorBase {
     #endif
 
     public:
-        StatCorrector(u64 bias_idx_width, u64 global_idx_width, u64 local_idx_width_1) :
-            _lg_bias_ctr_size(bias_idx_width), _lg_gh_ctr_size(global_idx_width), _lg_lh1_ctr_size(),
+        StatCorrector(u64 bias_idx_width, u64 global_idx_width, u64 local_idx_width_1, u64 path_hist_idx_width) :
+            _lg_bias_ctr_size(bias_idx_width), _lg_gh_ctr_size(global_idx_width), _lg_lh1_ctr_size(), _lg_ph_ctr_size(path_hist_idx_width),
             _bias_mask((1ull << bias_idx_width) - 1), _global_hist_mask((1ull << global_idx_width) - 1), 
             _bias(1ull << bias_idx_width, SatCounter<CS>()), _bias_sk(1ull << bias_idx_width, SatCounter<CS>())
         {
@@ -151,6 +171,14 @@ class StatCorrector : BranchPredictorBase {
             }
 
             _local_threshold_ctrs.resize(1ull<<6);
+
+            if constexpr (USE_PHIST) {
+                for (int i = 0; i < NUM_PATH_H; i++) {
+                    _w_path_hist[i].resize(1ull << path_hist_idx_width);
+                    // _gh_hashes[i] = csr(_global_hist_mask, global_idx_width, (GLOB_H_LEN[i] - 1) % global_idx_width);
+                }
+                
+            }
         }
 
         bool predict_sc(u64 pc) {
@@ -164,13 +192,22 @@ class StatCorrector : BranchPredictorBase {
             sum += _get_bias(pc);
             //std::cout << "sc predict in2" << std::endl;
             sum += _get_gh_prediction(pc);
+            sum += _get_path_prediction(pc);
             //std::cout << "sc predict in3" << std::endl;
             sum += tage_contrib;
             //std::cout << "sc predict in4" << std::endl;
             _last_sum = sum;
             //std::cout << "sc predict in5" << std::endl;
             _sc_pred = sum >= midpoint;
-            bool override_tage = (_sc_pred != _tage_pred) & (std::abs((int)_last_sum - (int)midpoint) > threshold);
+            int midpoint_distance = std::abs((int)_last_sum - (int)midpoint);
+            bool override_tage = (_sc_pred != _tage_pred) & (midpoint_distance > threshold);
+            if (_sc_pred != _tage_pred) {
+                if (_tage_conf.high_conf) {
+                    if ((midpoint_distance < threshold / 2) & (midpoint_distance >= threshold/4)) {
+                        override_tage = !_lc_chooser.predict();
+                    }
+                }
+            }
             _overrode = override_tage;
             #ifdef SC_STATS
                 _sc_num_predicts++;
@@ -192,26 +229,40 @@ class StatCorrector : BranchPredictorBase {
         void update_sc(u64 pc, BranchResult branch) {
             u64 midpoint = num_tables * SatCounter<CS>::midpoint() + tage_weight * SatCounter<3>::midpoint();
             u64 threshold = _get_threshold(pc);
+            int midpoint_distance = std::abs((int)_last_sum - (int)midpoint);
+            
             bool pred_correct = _last_pred == branch;
             bool tage_correct = _tage_pred == branch;
             bool sc_correct = _sc_pred == branch;
 
-            if ((!sc_correct) || (std::abs((int)_last_sum - (int)midpoint) < threshold)) {
-                // BranchResult dir = Bra
+            if ((!sc_correct) || (midpoint_distance < threshold)) {
                 _bias[_get_bias_idx(pc)].update(branch);
                 _bias_sk[_get_bias_sk_idx(pc)].update(branch);
+
                 for (int i=0; i<NUM_GLOBAL_H; i++) {
                     u64 idx = _get_gh_idx(pc, i);
                     _w_global[i][idx].update(branch);
                 }
+
+                if constexpr (USE_PHIST) {
+                    for (int i=0; i<NUM_PATH_H; i++) {
+                        u64 bhist = _path_hist & ((u64) ((1ULL << PATH_H_LEN[i]) - 1));
+                        u64 idx = _local_hist_idx(pc, bhist, i);
+                        _w_path_hist[i][idx].update(branch);
+                    }
+                }
+
                 _global_threshold_ctr.update(BranchResult(!sc_correct));
                 _local_threshold_ctrs[pc & _ltc_mask].update(BranchResult(!sc_correct));
             }
 
             // if ()
-            // if (_overrode | (sc_correct & !tage_correct & (std::abs((int)_last_sum - (int)midpoint) > threshold/2))) {
-            //     _lc_chooser.update( BranchResult(sc_correct));
-            // }
+            if ((_tage_pred != _sc_pred) & (midpoint_distance < threshold) & _tage_conf.high_conf) {
+                if ((midpoint_distance < threshold/2) & (midpoint_distance >= threshold/4)) {
+                    _lc_chooser.update( BranchResult(tage_correct));
+                }
+                
+            }
 
         }     
 
@@ -225,20 +276,30 @@ class StatCorrector : BranchPredictorBase {
             _global_history.update(branch);
         } 
 
-        void load_branch_info(u8 last_ctr, conf tage_conf, bool use_bias, bool tage_pred) {
+        void load_branch_info(u8 last_ctr, conf tage_conf, bool use_bias, bool tage_pred, u64 path_hist) {
             _last_tage_ctr = last_ctr;
             _tage_conf = tage_conf;
             _use_bias = use_bias;
             _tage_pred = tage_pred;
+            _path_hist = path_hist;
         }
 
         ~StatCorrector() {}
 
         std::string predictor_name() const override { return "StatCorrector"; }
         u64 get_size() const override {
-            u64 bias_tables = 2 * CS * (1ull << _lg_bias_ctr_size);
-            u64 gh_tables = NUM_GLOBAL_H * CS * (1ull << _lg_gh_ctr_size);
-            return bias_tables + gh_tables;
+            u64 total_size = 0;
+            // tables
+            total_size += 2 * CS * (1ull << _lg_bias_ctr_size);
+            total_size += NUM_GLOBAL_H * CS * (1ull << _lg_gh_ctr_size);
+            total_size += USE_PHIST*NUM_PATH_H * CS * (1ull << _lg_ph_ctr_size);
+
+            // counters
+            total_size += 10; // global threshold
+            total_size += 8 * (1ull << 6); // local threshold
+            total_size += 7; // 
+
+            return total_size;
         }
 
         void print_sc_stats() {
@@ -313,6 +374,8 @@ class TAGEImproved : public BranchPredictorBase {
 
     size_t _branches_seen = 0;
     int8_t _top_idx = 0;
+
+    u64 _path_hist = 0;
 
     const u8 _shift_amt = 2;
 
@@ -419,6 +482,25 @@ class TAGEImproved : public BranchPredictorBase {
         return _bank_map[bank_idx];
     }
 
+    void _update_path_hist(u64 pc, BranchResult branch, int brtype, u64 next_pc) {
+        if constexpr (!USE_PHIST) { return ;}
+        int T = ((pc ^ (pc >> 2))) ^ branch;
+		int PATH = pc ^ (pc >> 2) ^ (pc >> 4);
+        if ((brtype == 3) & branch) {
+            T = (T ^ (next_pc >> 2));
+            PATH = PATH ^ (next_pc >> 2) ^ (next_pc >> 4);
+        }
+        bool DIR = (T & 1);
+        T >>= 1;
+        int PATHBIT = (PATH & 127); // 0b 0111 1111, 0x7f
+        PATH >>= 1;
+        //update  history
+        // Y--;  //ptghist
+        // active_hist.ghist[Y & (HISTBUFFERLENGTH - 1)] = DIR;
+        _path_hist = (_path_hist << 1) ^ PATHBIT; //phist
+        _path_hist = (_path_hist & ((1<<PHISTWIDTH)-1));
+    }
+
     public:
         TAGEImproved(size_t idx_width_1, size_t idx_width_2, size_t tag_width_1, size_t tag_width_2, 
                     u64 firstLongTagTable,
@@ -480,7 +562,7 @@ class TAGEImproved : public BranchPredictorBase {
                 COLLECT_FP_REGISTER(std::vector<size_t>{_banks[0].size(), _banks[1].size()});
 
                 if (use_sc) {
-                    sc = std::make_unique<StatCorrector>(10,10,10);
+                    sc = std::make_unique<StatCorrector>(10,10,10,9);
                 }
         }
 
@@ -596,7 +678,7 @@ class TAGEImproved : public BranchPredictorBase {
                 conf tage_conf = _get_confidence(_top_idx, top_idx);
                 
                 bool use_bias = _alt_pred != _top_pred;
-                sc->load_branch_info(tage_ctr, tage_conf, use_bias, _top_pred); // needs: tage counter, tage conf, use_bias, tage_pred
+                sc->load_branch_info(tage_ctr, tage_conf, use_bias, _top_pred, _path_hist); // needs: tage counter, tage conf, use_bias, tage_pred, path_hist
                 //std::cout << "sc predict right before" << std::endl;
                 final_pred = sc->predict(pc);
             }
@@ -609,6 +691,10 @@ class TAGEImproved : public BranchPredictorBase {
         }
 
         void update(u64 pc, BranchResult branch) override {
+            update(pc, branch, 0, 0);
+        }
+
+        void update(u64 pc, BranchResult branch, u64 brtype, u64 next_pc) override {
             bool provider_corr = _top_pred == branch;
             bool alt_corr = _alt_pred == branch;
 
@@ -666,6 +752,7 @@ class TAGEImproved : public BranchPredictorBase {
             }
 
             _history_buffer.update(branch);
+            _update_path_hist(pc, branch, brtype, next_pc);
 
             if (_branches_seen++ > 256'000) {
                 _reset_all_banks();

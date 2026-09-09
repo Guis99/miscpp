@@ -23,11 +23,15 @@
 // Build/run:  make run regression-tage
 // ===========================================================================
 
-#define TAGE_STATS
+// #define TAGE_STATS
+
+#define USE_PHIST_
 
 #include "predictors.h"
 #include "tage_improved.h"
 #include "traces.h"
+
+#include "predictor_params.h"
 
 #include <array>
 #include <cstdint>
@@ -39,25 +43,25 @@
 #include <vector>
 
 // --- TAGE baseline geometry: keep in sync with the runners in run_traces.cpp
-#define IW 9        // index width
-#define TW 7        // tag width
-#define NUM_COMP 12 // tagged component banks
-#define L1 4        // shortest history length
-#define R 1.5f      // geometric history ratio
-#define H_SIZE 3000 // history buffer capacity
+// #define IW 9        // index width
+// #define TW 7        // tag width
+// #define NUM_COMP 12 // tagged component banks
+// #define L1 4        // shortest history length
+// #define R 1.5f      // geometric history ratio
+// #define H_SIZE 3000 // history buffer capacity
 
-// --- TAGEImproved geometry (new interleaved-bank interface).
-//     Placeholder values; tune as the design firms up. nLookups = 2 * TI_NC.
-#define TI_NC          12   // number of history lengths
-#define TI_N_L         6   // lower (short-tag) banks   -- sizing only
-#define TI_N_U         15   // upper (long-tag)  banks   -- sizing only
-#define TI_BASE_IW     9    // base table index width
-#define TI_TAGE_IW     9    // tagged bank index width
-#define TI_SHORT_TW    7    // short tag width
-#define TI_LONG_TW     10    // long tag width
-#define TI_FIRST_LONG  7   // first long-tag table (1-based lookup index)
-#define TI_MIN_HIST    4    // shortest history length
-#define TI_MAX_HIST    2000  // longest history length
+// // --- TAGEImproved geometry (new interleaved-bank interface).
+// //     Placeholder values; tune as the design firms up. nLookups = 2 * TI_NC.
+// #define TI_NC          12   // number of history lengths
+// #define TI_N_L         6   // lower (short-tag) banks   -- sizing only
+// #define TI_N_U         15   // upper (long-tag)  banks   -- sizing only
+// #define TI_BASE_IW     9    // base table index width
+// #define TI_TAGE_IW     9    // tagged bank index width
+// #define TI_SHORT_TW    7    // short tag width
+// #define TI_LONG_TW     10    // long tag width
+// #define TI_FIRST_LONG  7   // first long-tag table (1-based lookup index)
+// #define TI_MIN_HIST    4    // shortest history length
+// #define TI_MAX_HIST    2000  // longest history length
 
 // nLookups the TAGEImproved template exposes for the given TI_NC.
 constexpr int TI_NLOOKUPS = 2 * TI_NC;
@@ -72,7 +76,7 @@ constexpr int TI_NLOOKUPS = 2 * TI_NC;
 #define MIN_RATIO 0.98
 #endif
 
-using TAGE_t = TAGEPredictor<H_SIZE, NUM_COMP>;
+using TAGE_t = TAGEPredictor<TP_H, TP_NC>;
 using TAGEImproved_t = TAGEImproved<TI_N_L, TI_N_U, TI_NC>;
 
 namespace {
@@ -105,7 +109,7 @@ double score(const Case& c, Pred& predictor) {
 
 // Build a fresh baseline TAGE predictor.
 TAGE_t make_baseline() {
-    return TAGE_t(IW, TW, NUM_COMP, L1, R);
+    return TAGE_t(TP_IDX, TP_TAG, TP_NC, TP_L1, TP_RATIO);
 }
 
 // Build a fresh TAGEImproved predictor with the geometry defined above.
@@ -114,7 +118,7 @@ TAGEImproved_t make_improved() {
     no_skip.fill(true);
     return TAGEImproved_t(TI_BASE_IW, TI_TAGE_IW, TI_SHORT_TW, TI_LONG_TW,
                           TI_FIRST_LONG,
-                          TI_MIN_HIST, TI_MAX_HIST, no_skip);
+                          TI_MIN_HIST, TI_MAX_HIST, no_skip, true);
 }
 
 std::string pct(double x) {

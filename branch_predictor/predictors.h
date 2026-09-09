@@ -19,6 +19,7 @@ class BranchPredictorBase {
 public:
     virtual bool predict(u64 pc) = 0;
     virtual void update(u64 pc, BranchResult branch) = 0;
+    virtual void update(u64 pc, BranchResult branch, u64 brtype, u64 next_pc) { update(pc, branch); }
     virtual std::string predictor_name() const = 0;
     virtual u64 get_size() const = 0;
     virtual ~BranchPredictorBase() = default;

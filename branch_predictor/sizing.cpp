@@ -4,6 +4,9 @@
 //
 //   clang++ sizing.cpp -std=c++20 -O2 -o ./bin/sizing && ./bin/sizing
 //
+
+#define USE_PHIST_
+
 #include "predictors.h"
 #include "tage_improved.h"
 
