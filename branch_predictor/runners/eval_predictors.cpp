@@ -3,13 +3,13 @@
 // Produces one results.md and one results.csv per run, plus stdout summary.
 //
 // Build:
-//   g++ -std=c++17 -O2 -Wall -Wextra eval_predictors.cpp traces.cpp -o eval_predictors
+//   g++ -std=c++20 -O2 -Wall -Wextra eval_predictors.cpp ../traces.cpp -o eval_predictors
 // Run:
 //   ./eval_predictors
 
-#include "predictors.h"
-#include "primitives.h"
-#include "traces.h"
+#include "../predictors.h"
+#include "../primitives.h"
+#include "../traces.h"
 
 #include <cstdint>
 #include <fstream>
@@ -78,8 +78,8 @@ public:
     OwningTournament& operator=(const OwningTournament&) = delete;
     OwningTournament& operator=(OwningTournament&&) = delete;
 
-    bool predict(uint32_t pc) override { return tournament_.predict(pc); }
-    void update(uint32_t pc, BranchResult b) override { tournament_.update(pc, b); }
+    bool predict(u64 pc) override { return tournament_.predict(pc); }
+    void update(u64 pc, BranchResult b) override { tournament_.update(pc, b); }
     std::string predictor_name() const override { return name_; }
 };
 

@@ -20,7 +20,7 @@ target_include_directories(branch_predictor_lib PUBLIC
 
 # test: executable depending on branch_predictor_lib
 if(BUILD_TESTS)
-    add_executable(test_primitives test_primitives.cpp)
+    add_executable(test_primitives tests/test_primitives.cpp)
     target_link_libraries(test_primitives PRIVATE branch_predictor_lib)
     target_include_directories(test_primitives PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
@@ -33,7 +33,7 @@ endif()
 
 # trace runner: executable depending on branch_predictor_lib
 if(BUILD_RUN_TRACES)
-    add_executable(run_traces run_traces.cpp)
+    add_executable(run_traces runners/run_traces.cpp)
     target_link_libraries(run_traces PRIVATE branch_predictor_lib)
     target_include_directories(run_traces PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
@@ -46,7 +46,7 @@ endif()
 
 # evaluation: executable depending on branch_predictor_lib
 if(BUILD_EVAL_PREDICTORS)
-    add_executable(eval_predictors eval_predictors.cpp)
+    add_executable(eval_predictors runners/eval_predictors.cpp)
     target_link_libraries(eval_predictors PRIVATE branch_predictor_lib)
     target_include_directories(eval_predictors PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
@@ -59,7 +59,7 @@ endif()
 
 # regression: TAGEImproved must stay within MIN_RATIO of TAGE on sanity traces
 if(BUILD_REGRESSION)
-    add_executable(regression_tage regression_tage.cpp)
+    add_executable(regression_tage runners/regression_tage.cpp)
     target_link_libraries(regression_tage PRIVATE branch_predictor_lib)
     target_include_directories(regression_tage PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
