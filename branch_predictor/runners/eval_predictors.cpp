@@ -7,9 +7,9 @@
 // Run:
 //   ./eval_predictors
 
-#include "../predictors.h"
-#include "../primitives.h"
-#include "../traces.h"
+#include "predictors.h"
+#include "primitives.h"
+#include "traces.h"
 
 #include <cstdint>
 #include <fstream>
