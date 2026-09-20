@@ -1,5 +1,5 @@
 // sizing.cpp — instantiate each predictor and report get_size().
-// Target budget: 32 KiB = 32768 bytes = 262144 bits per predictor.
+// Target budget: 64 KiB = 65536 bytes = 524288 bits per predictor.
 // Tweak the params below and re-run to converge on the target.
 //
 //   clang++ sizing.cpp -std=c++20 -O2 -o ./bin/sizing && ./bin/sizing
@@ -26,7 +26,7 @@ static void report(const std::string& label, u64 bits) {
 
 int main() {
     std::printf("%-34s %13s %13s %8s %11s\n",
-                "predictor (params)", "size", "", "", "vs 32KiB");
+                "predictor (params)", "size", "", "", "vs 64KiB");
     std::printf("target: %.0f bytes (%.0f bits) per predictor\n\n",
                 TARGET_BYTES, TARGET_BYTES * 8);
 

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <vector>
 #include <memory>
+#include <algorithm>
 #undef TAGE_STATS
 // #define TAGE_STATS
 
@@ -27,6 +28,7 @@
 #endif
 
 #define PHISTWIDTH 27
+#define PMASK (1ull << PHISTWIDTH) - 1
 
 // ---------------------------------------------------------------------------
 // TAGEImproved: iteration target for the advanced techniques (interleaved
@@ -494,9 +496,6 @@ class TAGEImproved : public BranchPredictorBase {
         T >>= 1;
         int PATHBIT = (PATH & 127); // 0b 0111 1111, 0x7f
         PATH >>= 1;
-        //update  history
-        // Y--;  //ptghist
-        // active_hist.ghist[Y & (HISTBUFFERLENGTH - 1)] = DIR;
         _path_hist = (_path_hist << 1) ^ PATHBIT; //phist
         _path_hist = (_path_hist & ((1<<PHISTWIDTH)-1));
     }
@@ -518,11 +517,8 @@ class TAGEImproved : public BranchPredictorBase {
                 _base_table(_table_size, SatCounter<2>()), 
                 _noSkip(noSkip)
             {
-                // std::cout << "initializing history lengths" << std::endl;
                 _history_lengths[1] = minHist;
                 _history_lengths[NC] = maxHist;
-
-                // std::cout << "[init]history length at index " << 1 << ": " << minHist << std::endl;
                 
                 for (int i = 2; i <= NC; i++) {
                     
@@ -530,11 +526,7 @@ class TAGEImproved : public BranchPredictorBase {
                                 pow ((double) (maxHist) / (double) minHist,
                                     (double) (i - 1) / (double) ((NC - 1))))
                                 + 0.5);
-
-                    // std::cout << "[init]history length at index " << i << ": " << _history_lengths[i] << std::endl;
                 }    
-
-                // std::cout << "[init]history length at index " << NC << ": " << maxHist << std::endl;
 
                 for (int i = nLookups; i > 1; i--) {
                         _history_lengths[i] = _history_lengths[(i + 1) / 2];
@@ -553,7 +545,6 @@ class TAGEImproved : public BranchPredictorBase {
                     u16 hl = _history_lengths[i];
                     _idx_hashes[i] = csr(_tage_idx_mask, _tage_idx_width, (hl - 1) % _tage_idx_width);
                     _tag_hashes[i] = csr(_tag_masks[i], _tagWidths[i], (hl - 1) % _tagWidths[i]);
-                    // _tag_hashes_2[i] = csr(_tag_masks[i], _tagWidths[i] - 1, (hl - 1) % _tagWidths[i]);
                     _tag_hashes_2[i] = csr( (1ull << (_tagWidths[i] - 1)) - 1, _tagWidths[i] - 1, (hl - 1) % (_tagWidths[i] - 1));
                 }
 
@@ -596,7 +587,7 @@ class TAGEImproved : public BranchPredictorBase {
             const u64 shifted_pc = pc >> _shift_amt;
 
             u64 t = (shifted_pc ^ 
-                    ((1 << _history_lengths[_firstLongTagTable]) - 1))
+                    ((1 << std::min(27, (int)_history_lengths[_firstLongTagTable])) - 1))
              % N_L;
 
              for (int i = _firstLongTagTable; i <= nLookups; i++) {
@@ -608,7 +599,7 @@ class TAGEImproved : public BranchPredictorBase {
             }
  
             t = (shifted_pc ^ 
-                            ((1 << _history_lengths[1]) - 1))
+                            ((1 << std::min(27, (int)_history_lengths[1])) - 1))
                 % N_L;
     
             for (int i = 1; i < _firstLongTagTable; i++) {
@@ -629,7 +620,6 @@ class TAGEImproved : public BranchPredictorBase {
                                   _noSkip[i] && _banks[_get_mapped_idx(i)][idx].is_allocated(),
                                   _collect_fp(pc, _history_lengths[i]));
                 if (tag_match) {
-                // if (tag_match && (_history_lengths[i] != _history_lengths[_top_idx])) {
                     _alt_pred = _top_pred;
                     _top_pred = pred;
                     _top_idx = i;
@@ -639,27 +629,6 @@ class TAGEImproved : public BranchPredictorBase {
             if (_top_idx > 0)
                 COLLECT_FP_CHECK(_get_mapped_idx(_top_idx), _idx_cache[_top_idx],
                                  _collect_fp(pc, _history_lengths[_top_idx]));
-
-            // return _top_pred;
-            // if (_use_sc) {
-            //     //std::cout << "sc predict begin" << std::endl;
-            //     u16 top_idx = _top_idx > 0 ? _idx_cache[_top_idx] : _get_idx(pc);
-            //     conf tage_conf = _get_confidence(_top_idx, top_idx);
-            //     u8 tage_ctr = _banks[_get_mapped_idx(_top_idx)][top_idx].get_ctr();
-            //     bool use_bias = _alt_pred != _top_pred;
-            //     sc->load_branch_info(tage_ctr, tage_conf, use_bias, _top_pred); // needs: tage counter, tage conf, use_bias, tage_pred
-            //     //std::cout << "sc predict right before" << std::endl;
-            //     return sc->predict(pc);
-            // } else {
-            //     if (_top_idx > 0) {
-            //         u16 top_idx = _idx_cache[_top_idx];
-            //         if (_is_entry_new(top_idx)) {
-            //             _alt_on_new = true;
-            //             return _aon_tracker.predict() ? _alt_pred : _top_pred;
-            //         }
-            //     }
-            //     return _top_pred;
-            // }
 
             bool final_pred = _top_pred;
             if (_top_idx > 0) {
@@ -671,7 +640,6 @@ class TAGEImproved : public BranchPredictorBase {
             }
 
             if (_use_sc) {
-                // std::cout << "sc predict begin" << std::endl;
                 bool used_bank = _top_idx > 0;
                 u16 top_idx = used_bank ? _idx_cache[_top_idx] : _get_idx(pc);
                 u8 tage_ctr = used_bank ? _banks[_get_mapped_idx(_top_idx)][top_idx].get_ctr() : bim2tage[_base_table[_get_idx(pc)].get_val()];
@@ -679,7 +647,6 @@ class TAGEImproved : public BranchPredictorBase {
                 
                 bool use_bias = _alt_pred != _top_pred;
                 sc->load_branch_info(tage_ctr, tage_conf, use_bias, _top_pred, _path_hist); // needs: tage counter, tage conf, use_bias, tage_pred, path_hist
-                //std::cout << "sc predict right before" << std::endl;
                 final_pred = sc->predict(pc);
             }
 
