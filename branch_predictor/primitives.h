@@ -24,10 +24,6 @@ class SatCounter {
     static constexpr u16 TAKEN_THRESHOLD = 1u << (n_bits - 1);
     u16 val;
 #ifdef COLLECT_DATA
-    // Collection-only shadow: the full (un-hashed, un-masked) PC that last
-    // trained this counter. Compared against the incoming PC on access to
-    // detect destructive interference / aliasing. Gated out of production, so
-    // sizeof(SatCounter) is unchanged in a normal build. ~0ull = never written.
     uint64_t _owner_pc = ~0ull;
 #endif
     public:
