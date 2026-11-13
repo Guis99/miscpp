@@ -83,8 +83,9 @@ class GSharePredictor : public BranchPredictorBase {
         }
 
         void update(u64 pc, BranchResult branch) override {
-            u64 idx = get_idx(pc);
-            COLLECT_ALIAS(pred_table[idx], pc);
+            size_t history_idx = history_buffer.as_idx() & history_mask;
+            u64 idx = (pc ^ history_idx) & pc_mask;   // == get_idx(pc)
+            COLLECT_ALIAS_CTX(pred_table[idx], pc, history_idx);  // owner = (pc, history) context
             pred_table[idx].update(branch);
             history_buffer.update(branch);
             COLLECT_TICK();
@@ -428,7 +429,9 @@ class TAGEPredictor : public BranchPredictorBase {
             }
 
             COLLECT_PROVIDER(_top_idx > -1 ? _history_lengths[_top_idx] : 0,
-                             (_alt_on_new ? _alt_pred : _top_pred) != branch);
+                             (_alt_on_new ? _alt_pred : _top_pred) != branch,
+                             (_alt_pred != _top_pred) && (_top_pred == branch));
+            COLLECT_ALT(_alt_on_new, _alt_pred == branch);
             COLLECT_SNAPSHOT(_banks);
 
             for (int i = 0; i < NC; i++) {
@@ -467,7 +470,7 @@ class TAGEPredictor : public BranchPredictorBase {
                 bool pred = _banks[i][idx].predict();
                 bool tag_match = _banks[i][idx].match_tag(tag);
                 COLLECT_IDX_CHECK(i, idx, _banks[i][idx].is_allocated(),
-                                  _collect_fp(pc, _history_lengths[i]));
+                                  _collect_fp(pc, _history_lengths[i]), tag_match);
                 if (tag_match) {
                     _alt_pred = _top_pred;
                     _top_pred = pred;

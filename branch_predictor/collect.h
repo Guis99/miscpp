@@ -76,27 +76,32 @@ struct Collector {
     uint64_t   tag_alias_access = 0, tag_alias_collision = 0;   // per-window
     // Feature #3: tagless-predictor aliasing (per-window)
     uint64_t   alias_access = 0, alias_conflict = 0;
-    // Feature #3c: tagged-bank index collision (per-window). Reuses fp_shadow.
-    uint64_t   idx_collision_access = 0, idx_collision = 0;
+    // Feature #3c / aliasing funnel (per-window). Reuses fp_shadow. Cleanly
+    // nested: idx_collision_access (all allocated probes) >= idx_collision
+    // (a different (pc,hist) context occupies this index) >= idx_tag_collision
+    // (that different context ALSO matches the tag -> "both collide").
+    uint64_t   idx_collision_access = 0, idx_collision = 0, idx_tag_collision = 0;
+    // Per-window alt-on-new: times the alt prediction was used, and of those,
+    // times it was correct.
+    uint64_t   alt_attempt = 0, alt_success = 0;
     // Feature #4: provider distribution (per-window), binned by the PROVIDER's
     // history length so TAGE and TAGEImproved compare on a fair axis (their
     // logical bank counts differ). Exactly one increment per branch. Bin 0 =
     // the history-less base predictor; bins 1..10 are log2-ish hist ranges.
-    static constexpr int PROV_BINS = 11;
+    // Bins: 0 = history-less base, then {1-10, 11-30, 31-100, 101-300, 300+}.
+    static constexpr int PROV_BINS = 6;
     uint64_t   prov_bin[PROV_BINS] = {0};       // providers this window, per bin
     uint64_t   prov_miss_bin[PROV_BINS] = {0};  // of those, mispredicts, per bin
+    // of those, times the provider disagreed with the alt AND was correct --
+    // the unique correct contribution of the provider's (longer) history.
+    uint64_t   prov_altwin_bin[PROV_BINS] = {0};
     static int prov_bin_of(uint64_t hl) {
         if (hl == 0)    return 0;
-        if (hl <= 4)    return 1;
-        if (hl <= 8)    return 2;
-        if (hl <= 16)   return 3;
-        if (hl <= 32)   return 4;
-        if (hl <= 64)   return 5;
-        if (hl <= 128)  return 6;
-        if (hl <= 256)  return 7;
-        if (hl <= 512)  return 8;
-        if (hl <= 1024) return 9;
-        return 10;
+        if (hl <= 10)   return 1;
+        if (hl <= 30)   return 2;
+        if (hl <= 100)  return 3;
+        if (hl <= 300)  return 4;
+        return 5;
     }
 
     void lazy_init() {
@@ -118,10 +123,10 @@ struct Collector {
                               "tag_alias_access,tag_alias_collision,tag_alias_rate,"
                               "alias_access,alias_conflict,alias_rate,"
                               "idx_collision_access,idx_collision,idx_collision_rate,"
-                              "prov_h0,prov_h4,prov_h8,prov_h16,prov_h32,prov_h64,"
-                              "prov_h128,prov_h256,prov_h512,prov_h1024,prov_h1024p,"
-                              "provmr_h0,provmr_h4,provmr_h8,provmr_h16,provmr_h32,provmr_h64,"
-                              "provmr_h128,provmr_h256,provmr_h512,provmr_h1024,provmr_h1024p\n");
+                              "idx_tag_collision,alt_attempt,alt_success,"
+                              "prov_h0,prov_1_10,prov_11_30,prov_31_100,prov_101_300,prov_300p,"
+                              "provmr_h0,provmr_1_10,provmr_11_30,provmr_31_100,provmr_101_300,provmr_300p,"
+                              "provben_h0,provben_1_10,provben_11_30,provben_31_100,provben_101_300,provben_300p\n");
             std::fflush(out);
         }
         std::atexit(&collect_atexit);
@@ -148,11 +153,12 @@ struct Collector {
     // Feature #4: called once per branch with the provider's history length
     // (0 == the history-less base predictor) and whether the served prediction
     // missed (attributed to the provider bin, matching _stat_prov_miss).
-    void record_provider(uint64_t hl, bool miss) {
+    void record_provider(uint64_t hl, bool miss, bool altwin) {
         lazy_init();
         int b = prov_bin_of(hl);
         ++prov_bin[b];
-        if (miss) ++prov_miss_bin[b];
+        if (miss)   ++prov_miss_bin[b];
+        if (altwin) ++prov_altwin_bin[b];   // provider != alt AND provider correct
     }
 
     // ---- Feature #3: tagless aliasing ----
@@ -193,12 +199,23 @@ struct Collector {
     // the tag, so tag_alias_collision/idx_collision quantifies the tag's filtering. `fp` and
     // `allocated` are evaluated by the caller only in a COLLECT build (the macro
     // discards them otherwise), so a normal build never pays for either.
-    void idx_check(int bank, size_t idx, bool allocated, uint64_t fp) {
+    void idx_check(int bank, size_t idx, bool allocated, uint64_t fp, bool tag_match) {
         if (!allocated) return;
         lazy_init();
         if (bank < 0 || bank >= (int)fp_shadow.size() || idx >= fp_shadow[bank].size()) return;
-        ++idx_collision_access;
-        if (fp_shadow[bank][idx] != fp) ++idx_collision;
+        ++idx_collision_access;                         // probe of an allocated entry
+        if (fp_shadow[bank][idx] != fp) {               // different context at this index
+            ++idx_collision;
+            if (tag_match) ++idx_tag_collision;         // ...whose tag also matches -> both collide
+        }
+    }
+
+    // Per-window alt-on-new: `used` = the alt prediction was served instead of
+    // the provider; `correct` = that alt prediction matched the outcome.
+    void record_alt(bool used, bool correct) {
+        if (!used) return;
+        ++alt_attempt;
+        if (correct) ++alt_success;
     }
 
     void emit() {
@@ -208,7 +225,7 @@ struct Collector {
             double frate = tag_alias_access ? (double)tag_alias_collision / (double)tag_alias_access : 0.0;
             double alrate = alias_access ? (double)alias_conflict / (double)alias_access : 0.0;
             double ixrate = idx_collision_access ? (double)idx_collision / (double)idx_collision_access : 0.0;
-            std::fprintf(out, "%llu,%llu,%llu,%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%llu,%llu,%.5f,%llu,%llu,%.5f,%llu,%llu,%.5f",
+            std::fprintf(out, "%llu,%llu,%llu,%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%llu,%llu,%.5f,%llu,%llu,%.5f,%llu,%llu,%.5f,%llu,%llu,%llu",
                          (unsigned long long)win_index,
                          (unsigned long long)win_branches,
                          (unsigned long long)alloc_attempt,
@@ -223,7 +240,10 @@ struct Collector {
                          alrate,
                          (unsigned long long)idx_collision_access,
                          (unsigned long long)idx_collision,
-                         ixrate);
+                         ixrate,
+                         (unsigned long long)idx_tag_collision,
+                         (unsigned long long)alt_attempt,
+                         (unsigned long long)alt_success);
             // Feature #4: provider distribution as fractions (stack to ~1) ...
             uint64_t prov_total = 0;
             for (int b = 0; b < PROV_BINS; b++) prov_total += prov_bin[b];
@@ -234,6 +254,9 @@ struct Collector {
             for (int b = 0; b < PROV_BINS; b++)
                 std::fprintf(out, ",%.4f",
                              prov_bin[b] ? (double)prov_miss_bin[b] / (double)prov_bin[b] : 0.0);
+            // ... then each bin's unique-correct-override share (altwin / all branches).
+            for (int b = 0; b < PROV_BINS; b++)
+                std::fprintf(out, ",%.4f", (double)prov_altwin_bin[b] / pd);
             std::fputc('\n', out);
             std::fflush(out);
         }
@@ -244,8 +267,9 @@ struct Collector {
         u_total   = 0;
         tag_alias_access = tag_alias_collision = 0;
         alias_access = alias_conflict = 0;
-        idx_collision_access = idx_collision = 0;
-        for (int b = 0; b < PROV_BINS; b++) prov_bin[b] = prov_miss_bin[b] = 0;
+        idx_collision_access = idx_collision = idx_tag_collision = 0;
+        alt_attempt = alt_success = 0;
+        for (int b = 0; b < PROV_BINS; b++) prov_bin[b] = prov_miss_bin[b] = prov_altwin_bin[b] = 0;
     }
 
     void finish() {
@@ -271,11 +295,13 @@ inline void collect_atexit() { g_collector.finish(); }
 // Feature #3c: index-collision probe. `allocated` and `fp` are evaluated only
 // here (COLLECT build); the no-op form below discards them, so a normal build
 // never calls is_allocated()/_collect_fp() at the probe site.
-#define COLLECT_IDX_CHECK(bank, idx, allocated, fp) \
-    (g_collector.idx_check((bank), (idx), (allocated), (fp)))
+#define COLLECT_IDX_CHECK(bank, idx, allocated, fp, tag_match) \
+    (g_collector.idx_check((bank), (idx), (allocated), (fp), (tag_match)))
 // Feature #4: record the provider's history length (0 == base) and whether the
 // served prediction missed, for this branch.
-#define COLLECT_PROVIDER(hl, miss) (g_collector.record_provider((uint64_t)(hl), (bool)(miss)))
+#define COLLECT_PROVIDER(hl, miss, altwin) (g_collector.record_provider((uint64_t)(hl), (bool)(miss), (bool)(altwin)))
+// Per-window alt-on-new: `used` = alt served instead of provider; `correct` = it matched.
+#define COLLECT_ALT(used, correct) (g_collector.record_alt((bool)(used), (bool)(correct)))
 // Feature #3: advance the window from a predictor with no banks (tagless).
 // TAGE variants advance it via COLLECT_SNAPSHOT instead; call exactly one per branch.
 #define COLLECT_TICK()                                                   \
@@ -287,6 +313,17 @@ inline void collect_atexit() { g_collector.finish(); }
         g_collector.record_alias((counter).collect_owner(), (uint64_t)(pc)); \
         (counter).collect_set_owner((uint64_t)(pc));                     \
     } while (0)
+// Context-aware variant: fingerprint the full (pc, history) context so gshare's
+// same-PC/different-history collisions are counted. PC-only (COLLECT_ALIAS) is
+// exact only when the history bits are a subset of the index bits (hist <= table
+// log); above that the fingerprint is needed. mix is bijective, so for bimodal
+// (hist==0) this reduces to an exact per-PC owner.
+#define COLLECT_ALIAS_CTX(counter, pc, hist)                             \
+    do {                                                                 \
+        uint64_t _fp = collect_mix((uint64_t)(pc)) ^ collect_mix((uint64_t)(hist) + 1); \
+        g_collector.record_alias((counter).collect_owner(), _fp);        \
+        (counter).collect_set_owner(_fp);                                \
+    } while (0)
 
 #else  // COLLECT_DATA disabled -> compiles to nothing
 #define COLLECT_ALLOC(ok)                ((void)0)
@@ -294,8 +331,10 @@ inline void collect_atexit() { g_collector.finish(); }
 #define COLLECT_FP_REGISTER(...)         ((void)0)
 #define COLLECT_FP_STORE(bank, idx, fp)  ((void)0)
 #define COLLECT_FP_CHECK(bank, idx, fp)  ((void)0)
-#define COLLECT_IDX_CHECK(bank, idx, allocated, fp)  ((void)0)
-#define COLLECT_PROVIDER(hl, miss)       ((void)0)
+#define COLLECT_IDX_CHECK(bank, idx, allocated, fp, tag_match)  ((void)0)
+#define COLLECT_PROVIDER(hl, miss, altwin)  ((void)0)
+#define COLLECT_ALT(used, correct)       ((void)0)
 #define COLLECT_TICK()                   ((void)0)
 #define COLLECT_ALIAS(counter, pc)       ((void)0)
+#define COLLECT_ALIAS_CTX(counter, pc, hist)  ((void)0)
 #endif

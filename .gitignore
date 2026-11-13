@@ -1,5 +1,8 @@
+**/.DS_Store
+
 */*.dSYM**
 .clangd
+.cache/
 */*build**
 */*bin**
 */CODE_REVIEW.md

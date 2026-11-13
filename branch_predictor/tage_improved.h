@@ -329,6 +329,10 @@ class TAGEImproved : public BranchPredictorBase {
 
     std::unique_ptr<StatCorrector> sc;
     bool _use_sc = false;
+    // Demo knob (TAG_CORRELATED=1): derive the tag from the index instead of an
+    // independent hash, so a tag collision follows every index collision. Off by
+    // default -> the default predictor is unchanged.
+    bool _tag_correlated = false;
 
     size_t _base_idx_width;
     size_t _tage_idx_width;
@@ -555,6 +559,8 @@ class TAGEImproved : public BranchPredictorBase {
                 if (use_sc) {
                     sc = std::make_unique<StatCorrector>(10,10,10,9);
                 }
+                if (const char* e = std::getenv("TAG_CORRELATED"))
+                    _tag_correlated = (std::atoi(e) != 0);
         }
 
         ~TAGEImproved() { 
@@ -574,7 +580,11 @@ class TAGEImproved : public BranchPredictorBase {
                 u32 tag_hash_2 = _tag_hashes_2[i].hash;
 
                 u16 idx = (pc ^ (pc >> (std::abs(int(_tage_idx_width - i) + 1))) ^ idx_hash) & _tage_idx_mask;
-                u16 tag = (pc ^ tag_hash ^ (tag_hash_2 << 1)) & _tag_masks[i]; // change to array of tag masks?
+                // Default: tag from an INDEPENDENT hash. Demo: tag ≡ f(base index)
+                // so same index ⟹ same tag (tag collision follows index collision).
+                u16 tag = _tag_correlated
+                    ? (u16)(((uint32_t)idx * 2654435761u) & _tag_masks[i])
+                    : (u16)((pc ^ tag_hash ^ (tag_hash_2 << 1)) & _tag_masks[i]);
 
                 _idx_cache[i] = idx;
                 _tag_cache[i] = tag;
@@ -587,7 +597,7 @@ class TAGEImproved : public BranchPredictorBase {
             const u64 shifted_pc = pc >> _shift_amt;
 
             u64 t = (shifted_pc ^ 
-                    ((1 << std::min(27, (int)_history_lengths[_firstLongTagTable])) - 1))
+                    (_path_hist & (1 << std::min(27, (int)_history_lengths[_firstLongTagTable])) - 1))
              % N_L;
 
              for (int i = _firstLongTagTable; i <= nLookups; i++) {
@@ -618,7 +628,7 @@ class TAGEImproved : public BranchPredictorBase {
                 bool tag_match = _banks[_get_mapped_idx(i)][idx].match_tag(tag);
                 COLLECT_IDX_CHECK(_get_mapped_idx(i), idx,
                                   _noSkip[i] && _banks[_get_mapped_idx(i)][idx].is_allocated(),
-                                  _collect_fp(pc, _history_lengths[i]));
+                                  _collect_fp(pc, _history_lengths[i]), tag_match);
                 if (tag_match) {
                     _alt_pred = _top_pred;
                     _top_pred = pred;
@@ -706,7 +716,9 @@ class TAGEImproved : public BranchPredictorBase {
             }
 
             COLLECT_PROVIDER(_top_idx > 0 ? _history_lengths[_top_idx] : 0,
-                             (_alt_on_new ? _alt_pred : _top_pred) != branch);
+                             (_alt_on_new ? _alt_pred : _top_pred) != branch,
+                             (_alt_pred != _top_pred) && (_top_pred == branch));
+            COLLECT_ALT(_alt_on_new, _alt_pred == branch);
             COLLECT_SNAPSHOT(_banks);
 
             for (int i = 1; i <= nLookups; i++) {
